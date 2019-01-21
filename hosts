@@ -1,2 +1,3 @@
 [vps]
-contab1.mikkel.cc ansible_user=mikkel
+#contab1.mikkel.cc ansible_user=mikkel
+openvz1.mikkel.cc ansible_user=root
