@@ -1,2 +1,2 @@
 *.retry
-vars/dns_credentials.yml
+vars/credentials.yml
