@@ -7,6 +7,3 @@
 [submodule "roles/nodejs"]
 	path = roles/nodejs
 	url = https://github.com/geerlingguy/ansible-role-nodejs.git
-[submodule "roles/yarn"]
-	path = roles/yarn
-	url = https://github.com/andrewrothstein/ansible-yarn.git
