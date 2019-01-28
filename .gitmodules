@@ -1,6 +1,9 @@
-[submodule ".\\roles\\nginx"]
-	path = .\\roles\\nginx
-	url = https://github.com/nginxinc/ansible-role-nginx.git
 [submodule "roles/nodejs"]
 	path = roles/nodejs
 	url = https://github.com/geerlingguy/ansible-role-nodejs.git
+[submodule "roles/acme_sh"]
+	path = roles/acme_sh
+	url = https://github.com/nickjj/ansible-acme-sh.git
+[submodule "roles/nginx"]
+	path = roles/nginx
+	url = https://github.com/nginxinc/ansible-role-nginx.git

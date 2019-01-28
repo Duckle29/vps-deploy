@@ -1,2 +1,3 @@
 *.retry
 vars/credentials.yml
+.vscode/*
