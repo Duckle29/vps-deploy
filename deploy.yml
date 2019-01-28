@@ -1,0 +1,396 @@
+---
+- name: Bootstrap python 2
+  hosts: vps
+  become: true
+  gather_facts: false
+
+  tasks:
+  - name: install python 2
+    raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+
+- name: Install acme.sh and aquire certs
+  hosts: vps
+  become: true
+  tags:
+    - acme
+
+  vars_files:
+    - vars/credentials.yml
+
+  vars:
+    acme_sh_copy_certs_to_path: "/etc/ssl/ansible"
+    acme_sh_become_user: "root"
+
+    acme_sh_default_staging: False
+    acme_sh_default_force_issue: False
+    acme_sh_default_dns_provider: "dns_namecheap"
+    acme_sh_default_dns_sleep: 60
+
+    acme_sh_domains:
+      - domains: ["mikkel.cc", "*.mikkel.cc", "flipflapflop.top", '*.flipflapflop.top']
+        debug: False
+
+  roles:
+    - { role: "acme_sh", tags: ["acme_sh"] }
+
+- name: Install nginx
+  hosts: vps
+  become: true
+  tags:
+    - nginx
+
+  vars:
+    autotorrent_webroot: '/var/www/autotorrent.mikkel.cc'
+
+    acme_cert_dir: '/etc/ssl/ansible'
+    acme_keyfile_name: 'mikkel.cc.key'
+    acme_fullchain_name: 'mikkel.cc.pem'
+
+  pre_tasks:
+    - name: Remove apache
+      apt: 
+        name: apache2
+        state: absent
+
+    - name: Install pip
+      apt:
+        name: python-pip
+        state: present
+    
+    - name: Ensure python OpenSSL dependencies are installed.
+      pip:
+        name: pyOpenSSL
+        state: present
+
+    - name: Ensure certificate location exists
+      file:
+        dest: '{{ acme_cert_dir }}'
+        state: directory
+
+    - name: Install rng-tools
+      apt:
+        name: rng-tools
+        state: present
+      
+    - name: Speed up entropy
+      command: rngd -r /dev/urandom
+
+    - name: Generate DH parameters
+      openssl_dhparam:
+        path: '{{ acme_cert_dir }}/dhparams.pem'
+        size: 2048
+
+  roles:
+    - nginx
+
+  post_tasks:
+    - name: Set up autotorrent nginx config
+      template:
+        src: templates/nginx/sites/autotorrent.conf.j2
+        dest: /etc/nginx/conf.d/autotorrent.conf
+
+    - name: Set up lounge nginx config
+      template:
+        src: templates/nginx/sites/lounge.conf.j2
+        dest: /etc/nginx/conf.d/lounge.conf
+
+    - name: Set up nextcloud config
+      template:
+        src: templates/nginx/sites/nextcloud.conf.j2
+        dest: /etc/nginx/conf.d/nextcloud.conf
+    
+    - name: Set up unifi SDN config
+      template:
+        src: templates/nginx/sites/unifiSDN.conf.j2
+        dest: /etc/nginx/conf.d/unifiSDN.conf
+
+    - name: Set up UNMS config
+      template:
+        src: templates/nginx/sites/unms.conf.j2
+        dest: /etc/nginx/conf.d/unms.conf
+
+    - name: Copy ssl-redirect site
+      template:
+        src: templates/nginx/sites/ssl-redirect.conf.j2
+        dest: /etc/nginx/conf.d/ssl-redirect.conf
+    
+    - name: Make snippet directory
+      file:
+        dest: /etc/nginx/snippets
+        state: directory
+
+    - name: Copy ssl snippet
+      template:
+        src: templates/nginx/ssl_snippets.j2
+        dest: /etc/nginx/snippets/ssl
+    
+    - name: Remove default nginx site
+      file:
+        dest: /etc/nginx/conf.d/default.conf
+        state: absent
+
+    - name: Reload nginx
+      service: 
+        name: nginx
+        state: reloaded
+
+- name: Install thelounge
+  hosts: vps
+  become: true
+  tags:
+    - thelounge
+  
+  tasks:
+    - name: Install nodejs
+      include_role:
+        name: nodejs
+      vars:
+        nodejs_version: "11.x"
+        nodejs_install_npm_user: root
+
+    - name: Get thelounge .deb
+      get_url: 
+        url: https://github.com/thelounge/thelounge/releases/download/v3.0.0-rc.6/thelounge_3.0.0-rc.6-1_all.deb
+        dest: /root/thelounge3.deb
+    
+    - name: Install thelounge
+      apt:
+        deb: /root/thelounge3.deb
+
+    - name: Stop thelounge before changing config
+      service:
+        name: thelounge
+        state: stopped
+
+    - name: Set up config
+      template:
+        src: templates/thelounge-config.js.j2
+        dest: /etc/thelounge/config.js
+
+    - name: Start and enable thelounge
+      service:
+        enabled: yes
+        name: thelounge
+        state: started
+
+- name: Install unifi SDN
+  hosts: vps
+  become: true
+  tags:
+    - unifi
+
+  tasks:
+    - name: Add an apt key for mongoDB
+      apt_key:
+        keyserver: keyserver.ubuntu.com
+        id: 0C49F3730359A14518585931BC711F9BA15703C6
+
+    - name: Add an apt key for unifi
+      apt_key:
+        keyserver: keyserver.ubuntu.com
+        id: 06E85760C0A52C50 
+    
+    - name: Add unifi repository
+      apt_repository:
+        repo: deb http://www.ubnt.com/downloads/unifi/debian stable ubiquiti
+        state: present
+        filename: 100-ubnt-unifi
+
+    - name: Install unifi SDN
+      apt:
+        name: unifi
+        state: present
+
+- name: Install UNMS
+  hosts: vps
+  become: true
+  tags:
+    - unms
+
+  tasks:
+    - name: Install dependencies
+      apt:
+        name: '{{ item }}'
+        state: present
+      with_items:
+        - curl 
+        - netcat
+        - sudo 
+        - bash
+  
+    - name: Install UNMS
+      shell: "curl -fsSL https://unms.com/install | sudo bash -s - --public-https-port 443 --http-port 8080 --https-port 8443"
+
+- name: Install sopel
+  hosts: vps
+  become: true
+  tags:
+    - sopel
+
+  vars_files:
+    - vars/credentials.yml
+
+  tasks:
+    - name: Install python3
+      apt:
+        name: python3
+        state: present
+
+    - name: Install enchant
+      apt:
+        name: enchant
+        state: present
+
+    - name: add universe repository for bionic
+      apt_repository: 
+        repo: deb http://archive.ubuntu.com/ubuntu bionic universe
+        state: present
+      when: ansible_distribution_release == 'bionic'
+    
+    - name: Install pip3
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install sopel
+      pip:
+        name: sopel
+        executable: pip3
+    
+    - name: Install wolframalpha plugin
+      pip:
+        name: sopel-modules.wolfram
+        executable: pip3
+
+    - name: Add sopel system user
+      user:
+        name: sopel
+        password: '!'
+        home: /srv/sopel
+        system: yes
+        state: present
+
+    - name: Make sopel folders
+      file:
+        path: '{{ item }}'
+        owner: sopel
+        group: sopel
+        state: directory
+      with_items:
+        - '/etc/sopel'
+        - '/var/log/sopel'
+        - '/run/sopel'
+
+    - name: Copy sopel config
+      template:
+        src: templates/sopel/sopel.cfg.j2
+        dest: /etc/sopel/sopel.cfg
+    
+    - name: Add sopel systemd service
+      template:
+        src: templates/sopel/sopel.service.j2
+        dest: /etc/systemd/system/sopel.service
+
+    - name: Start and enable sopel
+      service:
+        name: sopel
+        state: started
+        enabled: yes
+
+- name: Set up autotorrent
+  hosts: vps
+  become: true
+  tags:
+    - autotorrent
+
+  vars_files:
+    - vars/credentials.yml
+
+  tasks:
+    - name: Added deluge ppa
+      apt_repository:
+        repo: ppa:deluge-team/ppa
+
+    - name: Install deluged
+      apt:
+        name: deluged
+        state: present
+    
+    - name: Add deluge system user
+      user:
+        name: deluge
+        password: '!'
+        home: /srv/deluge
+        system: yes
+        state: present
+    
+    - name: Add deluged systemd service
+      template:
+        src: templates/deluge/unitfile.service.j2
+        dest: /etc/systemd/system/deluged.service
+
+    - name: Start deluged to generate configs
+      service:
+        name: deluged
+        state: started
+
+    - name: Stop deluged
+      service:
+        name: deluged
+        state: stopped
+
+    - name: Add deluge admin user
+      lineinfile:
+        path: /srv/deluge/.config/deluge/auth
+        line: '{{ deluge_user }}:{{ deluge_pass }}:10'
+
+    - name: Allow remote connections
+      lineinfile:
+        path: /srv/deluge/.config/deluge/core.conf
+        regexp: '^  "allow_remote":'
+        line: '  "allow_remote": true,'
+  
+    - name: Start and enable deluged
+      service:
+        name: deluged
+        state: started
+        enabled: yes
+
+    - name: Install feedgen
+      pip:
+        name: feedgen
+        executable: pip3
+    
+    - name: Install pytz
+      pip:
+        name: pytz
+        executable: pip3
+
+    - name: Create web root
+      file:
+        path: '/var/www/autotorrent.mikkel.cc'
+        state: directory
+    
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Get torrentGen
+      git:
+        repo: https://github.com/Duckle29/torrentGen.git
+        dest: /srv/deluge/torrentGen
+        update: no
+
+    - name: Set up cronjob
+      cron:
+        name: 'autotorrent: Check for new version'
+        user: 'deluge'
+        hour: '*/1'
+        job: /usr/bin/python3 /srv/deluge/torrentGen/octopi/check.py
+
+- name: Install nextcloud
+  hosts: vps
+  become: true
+  tags:
+    - nextcloud
