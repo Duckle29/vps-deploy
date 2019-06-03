@@ -8,7 +8,7 @@
   - name: install python 2
     raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
 
-- name: Install acme.sh and aquire certs
+- name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
   become: true
   tags:
@@ -16,69 +16,43 @@
 
   vars_files:
     - vars/credentials.yml
+    - vars/shared_vars.yml
 
   vars:
-    acme_sh_copy_certs_to_path: "/etc/ssl/ansible"
+    acme_sh_copy_certs_to_path: '{{ cert_dir }}'
     acme_sh_become_user: "root"
 
     acme_sh_default_staging: False
     acme_sh_default_force_issue: False
-    acme_sh_default_dns_provider: "dns_namecheap"
-    acme_sh_default_dns_sleep: 60
+    acme_sh_default_dns_provider: "dns_cf"
+    acme_sh_default_dns_sleep: 120
+    acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
 
     acme_sh_domains:
-      - domains: ["mikkel.cc", "*.mikkel.cc", "flipflapflop.top", '*.flipflapflop.top']
+      - domains: ["mikkel.cc", "*.mikkel.cc"]
         debug: False
+    
+    dhparams_remote_directory: '{{ cert_dir }}'
+    dhparams_key_size: 4096
 
   roles:
-    - { role: "acme_sh", tags: ["acme_sh"] }
+    - { role: "nickjj.acme_sh", tags: ["acme_sh"] }
+    - duckle29.dhparam
 
 - name: Install nginx
   hosts: vps
   become: true
   tags:
-    - nginx
+    - nginxinc.nginx
 
-  vars:
-    autotorrent_webroot: '/var/www/autotorrent.mikkel.cc'
-
-    acme_cert_dir: '/etc/ssl/ansible'
-    acme_keyfile_name: 'mikkel.cc.key'
-    acme_fullchain_name: 'mikkel.cc.pem'
+  vars_files:
+    - vars/shared_vars.yml
 
   pre_tasks:
     - name: Remove apache
       apt: 
         name: apache2
         state: absent
-
-    - name: Install pip
-      apt:
-        name: python-pip
-        state: present
-    
-    - name: Ensure python OpenSSL dependencies are installed.
-      pip:
-        name: pyOpenSSL
-        state: present
-
-    - name: Ensure certificate location exists
-      file:
-        dest: '{{ acme_cert_dir }}'
-        state: directory
-
-    - name: Install rng-tools
-      apt:
-        name: rng-tools
-        state: present
-      
-    - name: Speed up entropy
-      command: rngd -r /dev/urandom
-
-    - name: Generate DH parameters
-      openssl_dhparam:
-        path: '{{ acme_cert_dir }}/dhparams.pem'
-        size: 2048
 
   roles:
     - nginx
@@ -143,19 +117,26 @@
   tasks:
     - name: Install nodejs
       include_role:
-        name: nodejs
+        name: geerlingguy.nodejs
       vars:
         nodejs_version: "11.x"
         nodejs_install_npm_user: root
 
-    - name: Get thelounge .deb
+    - name: Get the latest release info
+      uri:
+        url: https://api.github.com/repos/thelounge/thelounge/releases/latest
+        return_content: true
+      register: lounge_json_response
+      failed_when: lounge_json_response.json.assets.0.content_type != "application/x-debian-package"
+
+    - name: Get the latest thelounge .deb
       get_url: 
-        url: https://github.com/thelounge/thelounge/releases/download/v3.0.0-rc.6/thelounge_3.0.0-rc.6-1_all.deb
-        dest: /root/thelounge3.deb
+        url: '{{ lounge_json_response.json.assets.0.browser_download_url }}'
+        dest: /root/thelounge.deb
     
     - name: Install thelounge
       apt:
-        deb: /root/thelounge3.deb
+        deb: /root/thelounge.deb
 
     - name: Stop thelounge before changing config
       service:
@@ -230,72 +211,52 @@
   vars_files:
     - vars/credentials.yml
 
-  tasks:
-    - name: Install python3
-      apt:
-        name: python3
-        state: present
+  vars:
+    sopel_command_prefix: '\$'
 
-    - name: Install enchant
-      apt:
-        name: enchant
-        state: present
+    sopel_nick: DumDuckBot
+    sopel_auth_user: '{{ sopel_irc_usr }}'
+    sopel_auth_pass: '{{ sopel_irc_pass }}'
 
-    - name: add universe repository for bionic
-      apt_repository: 
-        repo: deb http://archive.ubuntu.com/ubuntu bionic universe
-        state: present
-      when: ansible_distribution_release == 'bionic'
+    sopel_channels: 
+      - '##botspam'
+      - '#reprap'
+      - '#bigdelta'
+
+    sopel_bot_owner: 'Duckle29'
+
+    sopel_enabled_plugins:
+      - help
+      - admin
+      - clock
+      - find_updates
+      - reload
+      - currency
+      - remind
+      - search
+      - version
+      - xkcd
+      - wolfram
+      - calc
+      - funreplies
+
+    sopel_ignored_nicks:
+      - kthx
+      - mcrib
+      - ghtx
     
-    - name: Install pip3
-      apt:
-        name: python3-pip
-        state: present
+    sopel_config_extra: |
+      [wolfram]
+      app_id = {{ wolfram_alpha_key }}
+      max_public = 3
+      units = metric
 
-    - name: Install sopel
-      pip:
-        name: sopel
-        executable: pip3
-    
-    - name: Install wolframalpha plugin
-      pip:
-        name: sopel-modules.wolfram
-        executable: pip3
-
-    - name: Add sopel system user
-      user:
-        name: sopel
-        password: '!'
-        home: /srv/sopel
-        system: yes
-        state: present
-
-    - name: Make sopel folders
-      file:
-        path: '{{ item }}'
-        owner: sopel
-        group: sopel
-        state: directory
-      with_items:
-        - '/etc/sopel'
-        - '/var/log/sopel'
-        - '/run/sopel'
-
-    - name: Copy sopel config
-      template:
-        src: templates/sopel/sopel.cfg.j2
-        dest: /etc/sopel/sopel.cfg
-    
-    - name: Add sopel systemd service
-      template:
-        src: templates/sopel/sopel.service.j2
-        dest: /etc/systemd/system/sopel.service
-
-    - name: Start and enable sopel
-      service:
-        name: sopel
-        state: started
-        enabled: yes
+      [currency]
+      fixer_io_key = {{ fixer_io_key }}
+      auto_convert = true
+  
+  roles:
+    - sopel.sopel
 
 - name: Set up autotorrent
   hosts: vps
@@ -305,9 +266,10 @@
 
   vars_files:
     - vars/credentials.yml
+    - vars/shared_vars.yml
 
   tasks:
-    - name: Added deluge ppa
+    - name: Add deluge ppa
       apt_repository:
         repo: ppa:deluge-team/ppa
 
@@ -368,7 +330,7 @@
 
     - name: Create web root
       file:
-        path: '/var/www/autotorrent.mikkel.cc'
+        path: '{{ autotorrent_webroot }}'
         state: directory
     
     - name: Install git

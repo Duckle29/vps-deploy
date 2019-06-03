@@ -3,7 +3,7 @@ upstream php-handler {
 }
 
 server {
-	server_name nextcloud.mikkel.cc;
+	server_name nextcloud.{{ domain }};
 
 	listen 443 ssl;
 
@@ -15,7 +15,7 @@ server {
 	add_header X-Download-Options noopen;
 	add_header X-Permitted-Cross-Domain-Policies none;
 
-	root /var/www/nextcloud.mikkel.cc;
+	root /var/www/nextcloud.{{ domain }};
 	index index.php;
 
 	location = /robots.txt {

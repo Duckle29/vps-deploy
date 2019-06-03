@@ -1,5 +1,5 @@
 server {
-		server_name ubnt.mikkel.cc;
+		server_name ubnt.{{ domain }};
 		listen 80;
 
 		location /inform {
@@ -16,7 +16,7 @@ server {
 }
 
 server {
-	server_name ubnt.mikkel.cc;
+	server_name ubnt.{{ domain }};
 	listen 443 ssl;
 
 	include snippets/ssl;
@@ -24,7 +24,7 @@ server {
 	client_max_body_size 0;
 
 	location / {
-		set $upstream_unifi ubnt.mikkel.cc;
+		set $upstream_unifi ubnt.{{ domain }};
 		proxy_pass https://localhost:8443/;
 
 		proxy_set_header Host	$host;

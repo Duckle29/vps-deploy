@@ -1,6 +1,6 @@
-ssl_certificate {{ acme_cert_dir }}/mikkel.cc.pem;
-ssl_certificate_key {{ acme_cert_dir }}/mikkel.cc.key;
-ssl_dhparam {{ acme_cert_dir }}/dhparams.pem;
+ssl_certificate {{ cert_dir }}/mikkel.cc.pem;
+ssl_certificate_key {{ cert_dir }}/mikkel.cc.key;
+ssl_dhparam {{ cert_dir }}/dhparams.pem;
 
 ssl_protocols TLSv1.3 TLSv1.2;
 ssl_prefer_server_ciphers on;
