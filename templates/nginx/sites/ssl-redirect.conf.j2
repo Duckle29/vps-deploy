@@ -4,3 +4,9 @@ server {
     server_name _;
     return 301 https://$host$request_uri;
 }
+
+server {
+    listen 443 default_server ssl http2;
+    include snippets/ssl;
+    deny all;
+}
