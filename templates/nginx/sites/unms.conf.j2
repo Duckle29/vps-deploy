@@ -22,6 +22,7 @@ server {
 }
 
 server {
+  listen 443 ssl http2;
   server_name unms.{{ domain }};
 
   include snippets/ssl;
@@ -29,9 +30,8 @@ server {
   set $upstream 127.0.0.1:9443;
 
   location / {
-
-    access_log /var/log/nginx/access.log combined if=$loggable;
-
+	access_log /var/log/nginx/access.log combined if=$loggable;
+	
     proxy_pass     https://$upstream;
     proxy_redirect https://$upstream https://$server_name;
 
