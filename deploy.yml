@@ -22,7 +22,7 @@
     acme_sh_copy_certs_to_path: '{{ cert_dir }}'
     acme_sh_become_user: "root"
 
-    acme_sh_default_staging: False
+    acme_sh_default_staging: True
     acme_sh_default_force_issue: False
     acme_sh_default_dns_provider: "dns_cf"
     acme_sh_default_dns_sleep: 120
@@ -43,7 +43,7 @@
   hosts: vps
   become: true
   tags:
-    - nginxinc.nginx
+    - nginx
 
   vars_files:
     - vars/shared_vars.yml
@@ -55,7 +55,7 @@
         state: absent
 
   roles:
-    - nginx
+    - nginxinc.nginx
 
   post_tasks:
     - name: Set up autotorrent nginx config
@@ -170,7 +170,13 @@
       apt_key:
         keyserver: keyserver.ubuntu.com
         id: 06E85760C0A52C50 
-    
+
+    - name: Add mongoDB repository
+      apt_repository:
+        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.4 multiverse
+        state: present
+        filename: mongodb-org-3.4
+
     - name: Add unifi repository
       apt_repository:
         repo: deb http://www.ubnt.com/downloads/unifi/debian stable ubiquiti
@@ -191,16 +197,11 @@
   tasks:
     - name: Install dependencies
       apt:
-        name: '{{ item }}'
+        name: ['curl', 'netcat', 'sudo', 'bash']
         state: present
-      with_items:
-        - curl 
-        - netcat
-        - sudo 
-        - bash
   
     - name: Install UNMS
-      shell: "curl -fsSL https://unms.com/install | sudo bash -s - --public-https-port 443 --http-port 8080 --https-port 8443"
+      shell: "curl -fsSL https://unms.com/install > /tmp/unms_inst.sh && sudo bash /tmp/unms_inst.sh --public-https-port 443 --http-port 8081 --https-port 9443 --unattended"
 
 - name: Install sopel
   hosts: vps
@@ -213,9 +214,10 @@
 
   vars:
     sopel_command_prefix: '\$'
-
+    
+    sopel_instance_name: dumDuck
     sopel_nick: DumDuckBot
-    sopel_auth_user: '{{ sopel_irc_usr }}'
+    sopel_auth_user: '{{ sopel_irc_user }}'
     sopel_auth_pass: '{{ sopel_irc_pass }}'
 
     sopel_channels: 
