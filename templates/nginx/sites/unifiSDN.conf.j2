@@ -20,8 +20,8 @@ server {
 
 server {
 	server_name ubnt.{{ domain }};
-	listen 443 ssl;
 
+	listen 443 ssl http2;
 	include snippets/ssl;
 
 	client_max_body_size 0;
