@@ -1,0 +1,12 @@
+[Unit]
+Description=Gunicorn instance to serve my github webhooks
+After=network.target
+
+[Service]
+User=gunicorn
+Group=www-data
+WorkingDirectory={{ wh_server_install_dir }}
+ExecStart={{ wh_server_install_dir }}/venv/bin/gunicorn --workers 1 --bind "0.0.0.0:5012" app:app
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,69 @@
+- name: Install venv for Debian
+  become: true
+  package:
+    name: python3-venv
+  when:
+    - ansible_os_family == 'Debian'
+
+- name: Get webhook_server app from git
+  git:
+    repo: 'https://github.com/Duckle29/webhook_server.git'
+    dest: '{{ wh_server_install_dir }}'
+
+- name: add gunicorn system user
+  become: true
+  user:
+    name: gunicorn
+    password: '!'
+    home: '{{ wh_server_install_dir }}'
+    system: true
+    state: present
+
+- name: Install webhook_server dependencies - Debian
+  pip:
+    requirements: '{{ wh_server_install_dir }}/requirements.txt'
+    state: present
+    virtualenv: '{{ wh_server_install_dir }}/venv'
+    virtualenv_command: '/usr/bin/python3 -m venv'
+  when:
+    - ansible_os_family == 'Debian'
+
+- name: Install webhook_server dependencies - Redhat
+  pip:
+    requirements: '{{ wh_server_install_dir }}/requirements.txt'
+    state: present
+    virtualenv: '{{ wh_server_install_dir }}/venv'
+    virtualenv_command: '/usr/bin/python3.6 -m venv'
+  when:
+    - ansible_os_family == 'RedHat'
+
+- name: Insert github secret in config
+  lineinfile:
+    path: '{{ wh_server_install_dir }}/config.json'
+    line: '  "gh_secret": "{{ wh_server_secret }}",'
+    regexp: '"gh_secret":'
+
+- name: Insert webroot path in config
+  lineinfile:
+    path: '{{ wh_server_install_dir }}/config.json'
+    line: '    "path": "{{ mikkelcc_webroot }}",'
+    regexp: '"path":'
+
+- name: Set up systemd unit
+  template:
+    src: templates/webhook_server.service.j2
+    dest: /etc/systemd/system/webhook_server.service
+  when: ansible_service_mgr == "systemd"
+
+- name: Reload systemd daemon
+  become: true
+  systemd:
+    daemon_reload: true
+  when: ansible_service_mgr == "systemd"
+
+- name: Start and enable webhook server
+  become: true
+  service:
+    name: 'sopel-{{ sopel_instance_name }}'
+    enabled: true
+    state: started
