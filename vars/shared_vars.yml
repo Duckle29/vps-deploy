@@ -1,3 +1,4 @@
 cert_dir: '/etc/ssl/ansible'
 domain: 'move.mikkel.cc'
 autotorrent_webroot: '/var/www/autotorrent.mikkel.cc'
+mikkelcc_webroot: '/srv/mikkel.cc'
