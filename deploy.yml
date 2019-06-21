@@ -371,3 +371,46 @@
   become: true
   tags:
     - nextcloud
+
+  vars_files:
+    - vars/credentials.yml
+    - vars/shared_vars.yml
+    - vars/nextcloud/mysql.yml
+    - vars/nextcloud/php.yml
+
+  vars:
+    manala_cron_files:
+      - file: nextcloud
+        user: www-data
+        jobs:
+          - name: Run nextcloud cron
+            job: "php-cli -f {{ apache_vhosts.0.documentroot }}/cron.php"
+            minute: "*/15"
+
+    nextcloud_database:
+      name: "{{ mysql_databases[0].name }}"
+      user: "{{ mysql_users[0].name }}"
+      pass: "{{ mysql_users[0].password }}"
+    nextcloud_admin_user: "admin"
+    nextcloud_admin_pass: "pass"
+    nextcloud_urls:
+      - nextcloud.{{domain}}
+    nextcloud_version: 16
+    nextcloud_config_global:
+      backgroundjobs_mode: cron
+    
+    nextcloud_installation_dir: '/srv/nextcloud'
+
+  pre_tasks:
+  - setup:
+    become: no
+
+  tasks:
+    - include_role:
+        name: geerlingguy.php
+    - include_role:
+        name: geerlingguy.mysql
+    - include_role:
+        name: manala.cron
+    - include_role:
+        name: nkakouros.nextcloud

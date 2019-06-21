@@ -1,7 +1,10 @@
 ---
-
 - src: nickjj.acme_sh
 - src: duckle29.dhparam
 - src: nginxinc.nginx
 - src: sopel.sopel
 - src: geerlingguy.nodejs
+- src: geerlingguy.php
+- src: geerlingguy.mysql
+- src: manala.cron
+- src: nkakouros.nextcloud

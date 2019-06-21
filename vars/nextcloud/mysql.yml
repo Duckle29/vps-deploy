@@ -1,0 +1,13 @@
+---
+mysql_root_password_update: no
+mysql_databases:
+  - name: "nextcloud"
+mysql_users:
+  - name: 'nextcloud'
+    password: '{{ nc_database_pass }}'
+    priv: "nextcloud.*:ALL"
+mysql_packages:
+  - mariadb-client
+  - mariadb-server
+  - python-mysqldb
+  - python3-mysqldb
