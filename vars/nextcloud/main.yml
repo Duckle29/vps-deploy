@@ -10,7 +10,7 @@ nextcloud_data_dir: '/var/nextcloud_data'
 nextcloud_admin_name: '{{ nc_admin_user }}'
 nextcloud_admin_pwd: '{{ nc_admin_pass }}'
 
-nextcloud_install_redis_server: true
+nextcloud_install_redis_server: False
 nextcloud_install_websrv: false
 nextcloud_install_db: false
 
