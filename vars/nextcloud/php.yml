@@ -1,5 +1,8 @@
 ---
+php_default_version_debian: "7.2"
 php_memory_limit: "512M"
+php_fpm_pool_user: "nginx"
+php_fpm_pool_group: "nginx"
 php_packages_extra:
   - php7.2-common
   - php7.2-curl
