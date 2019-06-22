@@ -24,15 +24,15 @@
     acme_sh_copy_certs_to_path: '{{ cert_dir }}'
     acme_sh_become_user: "root"
 
-    acme_sh_default_staging: True
-    acme_sh_default_force_issue: False
+    acme_sh_default_staging: false
+    acme_sh_default_force_issue: false
     acme_sh_default_dns_provider: "dns_cf"
     acme_sh_default_dns_sleep: 120
     acme_sh_default_extra_flags_issue: '-k 4096'
     acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
 
     acme_sh_domains:
-      - domains: ["mikkel.cc", "*.mikkel.cc"]
+      - domains: ["mikkel.cc", "*.mikkel.cc", "lounge.mikkel.cc"]
         debug: False
     
     dhparams_remote_directory: '{{ cert_dir }}'
@@ -50,6 +50,8 @@
 
   vars_files:
     - vars/shared_vars.yml
+    - vars/nextcloud/php.yml
+    - vars/nextcloud/main.yml
 
   pre_tasks:
     - name: Remove apache
@@ -94,6 +96,9 @@
   become: true
   tags:
     - resume_site
+  
+  vars_files:
+    - vars/shared_vars.yml
 
   tasks:
     - name: Clone site via git
@@ -313,6 +318,10 @@
         name: deluged
         state: started
 
+    - name: Wait to allow deluge to generate config files
+      pause:
+        seconds: 5
+
     - name: Stop deluged
       service:
         name: deluged
@@ -399,13 +408,15 @@
         - regexp: '^listen\.owner.?=.+$'
           line: "listen.owner = {{ php_fpm_pool_user }}"
         - regexp: '^listen\.group.?=.+$'
-          line: "listen.owner = {{ php_fpm_pool_group }}"
+          line: "listen.group = {{ php_fpm_pool_group }}"
       when: php_enable_php_fpm
+      register: php_fpm_socket_ownership
     
     - name: Restart php-fpm
       service:
         name: php{{ php_default_version_debian }}-fpm
         state: restarted
+      when: php_fpm_socket_ownership.changed
 
     - include_role:
         name: geerlingguy.mysql
