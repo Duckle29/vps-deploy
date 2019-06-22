@@ -388,6 +388,25 @@
   tasks:
     - include_role:
         name: geerlingguy.php
+
+    - name: Change owner of php-fpm socket
+      lineinfile:
+        dest: "/etc/php/{{ php_default_version_debian }}/fpm/pool.d/www.conf"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      with_items:
+        - regexp: '^listen\.owner.?=.+$'
+          line: "listen.owner = {{ php_fpm_pool_user }}"
+        - regexp: '^listen\.group.?=.+$'
+          line: "listen.owner = {{ php_fpm_pool_group }}"
+      when: php_enable_php_fpm
+    
+    - name: Restart php-fpm
+      service:
+        name: php{{ php_default_version_debian }}-fpm
+        state: restarted
+
     - include_role:
         name: geerlingguy.mysql
     - include_role:
