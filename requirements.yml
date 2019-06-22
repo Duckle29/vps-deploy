@@ -6,6 +6,5 @@
 - src: geerlingguy.nodejs
 - src: geerlingguy.php
 - src: geerlingguy.mysql
-- src: manala.cron
 - src: aalaesar.install_nextcloud
 #- src: nkakouros.nextcloud

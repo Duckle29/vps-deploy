@@ -1,12 +1,4 @@
 ---
-manala_cron_files:
-  - file: nextcloud
-    user: www-data
-    jobs:
-      - name: Run nextcloud cron
-        job: 'php-cli -f {{ apache_vhosts.0.documentroot }}/cron.php'
-        minute: '*/15'
-
 nextcloud_get_latest: true
 nextcloud_version_major: 16
 nextcloud_archive_format: 'tar.bz2'

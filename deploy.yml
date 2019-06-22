@@ -391,6 +391,4 @@
     - include_role:
         name: geerlingguy.mysql
     - include_role:
-        name: manala.cron
-    - include_role:
         name: aalaesar.install_nextcloud
