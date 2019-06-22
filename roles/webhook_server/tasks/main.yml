@@ -10,6 +10,13 @@
     repo: 'https://github.com/Duckle29/webhook_server.git'
     dest: '{{ wh_server_install_dir }}'
 
+- name: Copy config template to config
+  copy:
+    src: '{{ wh_server_install_dir }}/config.json.template'
+    dest: '{{ wh_server_install_dir }}/config.json'
+    remote_src: true
+    force: false
+
 - name: add gunicorn system user
   become: true
   user:
@@ -17,6 +24,12 @@
     password: '!'
     home: '{{ wh_server_install_dir }}'
     system: true
+    state: present
+
+- name: Install ansible python requirements
+  become: true
+  package:
+    name: [python-pip, python-setuptools, python3-pip, python3-setuptools]
     state: present
 
 - name: Install webhook_server dependencies - Debian
@@ -49,6 +62,14 @@
     line: '    "path": "{{ mikkelcc_webroot }}",'
     regexp: '"path":'
 
+- name: Change filer ownership
+  file:
+    group: gunicorn
+    owner: gunicorn
+    recurse: true
+    path: '{{ wh_server_install_dir }}'
+    state: directory
+
 - name: Set up systemd unit
   template:
     src: templates/webhook_server.service.j2
@@ -64,6 +85,6 @@
 - name: Start and enable webhook server
   become: true
   service:
-    name: 'sopel-{{ sopel_instance_name }}'
+    name: 'webhook_server'
     enabled: true
     state: started

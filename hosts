@@ -1,4 +1,4 @@
 [vps]
 #contabo2.mikkel.cc ansible_user=mikkel
 #openvz1.mikkel.cc ansible_user=root
-do1.mikkel.cc ansible_user=mikkel
+do1.mikkel.cc ansible_user=root
