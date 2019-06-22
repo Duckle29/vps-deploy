@@ -6,6 +6,7 @@ mysql_users:
   - name: 'nextcloud'
     password: '{{ nc_database_pass }}'
     priv: "nextcloud.*:ALL"
+mysql_root_password: '{{ mysql_root_pass }}'
 mysql_packages:
   - mariadb-client
   - mariadb-server

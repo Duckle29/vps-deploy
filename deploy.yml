@@ -3,10 +3,12 @@
   hosts: vps
   become: true
   gather_facts: false
+  tags:
+    - bootstrap
 
   tasks:
-  - name: install python 3
-    raw: test -e /usr/bin/python || (apt -y update && apt install -y python3)
+  - name: install python
+    raw: test -e /usr/bin/python || (apt -y update && apt install -y python python3)
 
 - name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
@@ -377,29 +379,7 @@
     - vars/shared_vars.yml
     - vars/nextcloud/mysql.yml
     - vars/nextcloud/php.yml
-
-  vars:
-    manala_cron_files:
-      - file: nextcloud
-        user: www-data
-        jobs:
-          - name: Run nextcloud cron
-            job: "php-cli -f {{ apache_vhosts.0.documentroot }}/cron.php"
-            minute: "*/15"
-
-    nextcloud_database:
-      name: "{{ mysql_databases[0].name }}"
-      user: "{{ mysql_users[0].name }}"
-      pass: "{{ mysql_users[0].password }}"
-    nextcloud_admin_user: "admin"
-    nextcloud_admin_pass: "pass"
-    nextcloud_urls:
-      - nextcloud.{{domain}}
-    nextcloud_version: 16
-    nextcloud_config_global:
-      backgroundjobs_mode: cron
-    
-    nextcloud_installation_dir: '/srv/nextcloud'
+    - vars/nextcloud/main.yml
 
   pre_tasks:
   - setup:
@@ -413,4 +393,4 @@
     - include_role:
         name: manala.cron
     - include_role:
-        name: nkakouros.nextcloud
+        name: aalaesar.install_nextcloud

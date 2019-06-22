@@ -1,0 +1,33 @@
+---
+manala_cron_files:
+  - file: nextcloud
+    user: www-data
+    jobs:
+      - name: Run nextcloud cron
+        job: 'php-cli -f {{ apache_vhosts.0.documentroot }}/cron.php'
+        minute: '*/15'
+
+nextcloud_get_latest: true
+nextcloud_version_major: 16
+nextcloud_archive_format: 'tar.bz2'
+nextcloud_trusted_domain:
+  - 'nextcloud.{{ domain }}'
+
+nextcloud_webroot: '/srv/nextcloud'
+nextcloud_data_dir: '/var/nextcloud_data'
+nextcloud_admin_name: '{{ nc_admin_user }}'
+nextcloud_admin_pwd: '{{ nc_admin_pass }}'
+
+nextcloud_install_redis_server: true
+nextcloud_install_websrv: false
+nextcloud_install_db: false
+
+nextcloud_db_name: '{{ mysql_databases[0].name }}'
+nextcloud_db_admin: '{{ mysql_users[0].name }}'
+nextcloud_db_pwd: '{{ mysql_users[0].password }}'
+
+nextcloud_install_tls: false
+
+nextcloud_websrv_user: 'nginx'
+nextcloud_websrv_group: 'nginx'
+nextcloud_mysql_root_pwd: '{{ mysql_root_pass }}'
