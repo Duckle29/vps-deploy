@@ -214,9 +214,15 @@
       apt:
         name: ['curl', 'netcat', 'sudo', 'bash']
         state: present
+
+    - name: Check that UNMS isn't already aalaesar.install_nextcloud
+      stat:
+        path: /home/unms/app/unms-cli
+      register: unms_stat
   
     - name: Install UNMS
       shell: "curl -fsSL https://unms.com/install > /tmp/unms_inst.sh && sudo bash /tmp/unms_inst.sh --public-https-port 443 --http-port 8081 --https-port 9443 --unattended"
+      when: not unms_stat.stat.exists
 
 - name: Install sopel
   hosts: vps
@@ -369,6 +375,12 @@
         repo: https://github.com/Duckle29/torrentGen.git
         dest: /srv/deluge/torrentGen
         update: no
+    
+    - name: Set correct webroot in torrent gen script
+      lineinfile:
+        line: "webroot          = '{{ autotorrent_webroot }}''"
+        regexp: '^webroot +=.+$'
+        path: /srv/deluge/torrentGen/octopi/check.py
 
     - name: Set up cronjob
       cron:
