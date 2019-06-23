@@ -108,23 +108,24 @@
   
   vars_files:
     - vars/shared_vars.yml
+    - vars/credentials.yml
 
   tasks:
     - name: Clone site via git
       git:
         repo: 'https://github.com/Duckle29/startbootstrap-resume.git'
         dest: '{{ mikkelcc_webroot }}'
-      
-- name: Install webhook server
-  hosts: vps
-  become: true
 
-  vars_files:
-    - vars/shared_vars.yml
-    - vars/credentials.yml
-  
-  roles:
-    - webhook_server
+    - name: Install webhook server
+      include_role: webhook_server
+    
+    - name: Change ownership of resume site files
+      file:
+        group: gunicorn
+        owner: gunicorn
+        recurse: true
+        path: '{{ mikkelcc_webroot }}'
+        state: directory
 
 - name: Install thelounge
   hosts: vps
@@ -364,6 +365,13 @@
         state: started
         enabled: yes
 
+    - name: Ensure autoadd folder is present
+      file:
+        path: '/srv/deluge/torrentGen/autoadd'
+        state: directory
+        owner: deluge
+        group: deluge
+
     - name: Install feedgen
       pip:
         name: feedgen
@@ -378,6 +386,8 @@
       file:
         path: '{{ autotorrent_webroot }}'
         state: directory
+        owner: deluge
+        group: deluge
     
     - name: Install git
       apt:
