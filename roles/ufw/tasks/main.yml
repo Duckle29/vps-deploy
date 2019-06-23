@@ -7,7 +7,7 @@
 - name: Copy ufw application templates
   template:
     src: '{{ item }}'
-    dest: '/etc/ufw/applications.d/{{ item[:-3] }}'
+    dest: '/etc/ufw/applications.d/{{ item[:-3] | basename }}'
   with_fileglob:
     - templates/*.j2
 
@@ -17,8 +17,9 @@
 
 - name: Allow apps
   ufw:
-    app: ufw_allowed_apps
+    app: '{{ item }}'
     rule: allow
+  loop: '{{ ufw_allowed_apps }}'
 
 - name: Set up default outgoing policy
   ufw:

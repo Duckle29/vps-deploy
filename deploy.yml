@@ -62,21 +62,33 @@
   roles:
     - nginxinc.nginx
 
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded
+
   post_tasks:    
     - name: Make snippet directory
       file:
         dest: /etc/nginx/snippets
         state: directory
+      notify:
+        - reload nginx
 
     - name: Copy ssl snippet
       template:
         src: templates/nginx/ssl_snippets.j2
         dest: /etc/nginx/snippets/ssl
+      notify:
+        - reload nginx
     
     - name: Remove default nginx site
       file:
         dest: /etc/nginx/conf.d/default.conf
         state: absent
+      notify:
+        - reload nginx
     
     # Deploys all .conf.j2 files in templates/nginx/sites
     - name: Deploy site configs
@@ -85,11 +97,8 @@
         dest: '/etc/nginx/conf.d/{{ (item | basename | splitext)[0] }}'
       with_fileglob:
         - templates/nginx/sites/*.conf.j2
-
-    - name: Reload nginx
-      service: 
-        name: nginx
-        state: reloaded
+      notify:
+        - reload nginx
 
 - name: Deploy resume website
   hosts: vps
@@ -285,6 +294,11 @@
     - vars/credentials.yml
     - vars/shared_vars.yml
 
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
   tasks:
     - name: Add deluge ppa
       apt_repository:
@@ -307,12 +321,10 @@
       template:
         src: templates/deluge/unitfile.service.j2
         dest: /etc/systemd/system/deluged.service
-    
-    - name: Reload systemd daemon
-      systemd:
-        daemon_reload: yes
-      when: ansible_service_mgr == "systemd"
-
+      when: ansible_service_mgr == 'systemd'
+      notify:
+        - reload systemd
+      
     - name: Start deluged to generate configs
       service:
         name: deluged
@@ -392,6 +404,12 @@
     - vars/nextcloud/php.yml
     - vars/nextcloud/main.yml
 
+  handlers:
+    - name: restart php-fpm
+      service:
+        name: php{{ php_default_version_debian }}-fpm
+        state: restarted
+
   pre_tasks:
   - setup:
     become: no
@@ -412,13 +430,8 @@
         - regexp: '^listen\.group.?=.+$'
           line: "listen.group = {{ php_fpm_pool_group }}"
       when: php_enable_php_fpm
-      register: php_fpm_socket_ownership
-    
-    - name: Restart php-fpm
-      service:
-        name: php{{ php_default_version_debian }}-fpm
-        state: restarted
-      when: php_fpm_socket_ownership.changed
+      notify:
+        - restart php-fpm
 
     - include_role:
         name: geerlingguy.mysql
