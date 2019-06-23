@@ -402,7 +402,7 @@
     
     - name: Set correct webroot in torrent gen script
       lineinfile:
-        line: "webroot          = '{{ autotorrent_webroot }}''"
+        line: "webroot          = '{{ autotorrent_webroot }}/octopi/'"
         regexp: '^webroot +=.+$'
         path: /srv/deluge/torrentGen/octopi/check.py
 
