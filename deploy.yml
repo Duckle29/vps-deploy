@@ -327,10 +327,12 @@
         name: deluged
         state: stopped
 
+
     - name: Add deluge admin user
       lineinfile:
         path: /srv/deluge/.config/deluge/auth
         line: '{{ deluge_user }}:{{ deluge_pass }}:10'
+        create: true
 
     - name: Allow remote connections
       lineinfile:
