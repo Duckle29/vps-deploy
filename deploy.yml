@@ -117,7 +117,8 @@
         dest: '{{ mikkelcc_webroot }}'
 
     - name: Install webhook server
-      include_role: webhook_server
+      include_role: 
+        name: webhook_server
     
     - name: Change ownership of resume site files
       file:
