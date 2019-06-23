@@ -422,3 +422,12 @@
         name: geerlingguy.mysql
     - include_role:
         name: aalaesar.install_nextcloud
+
+- name: Set up firewall
+  hosts: vps
+  become: true
+  tags:
+    - firewall
+  
+  roles:
+    - ufw

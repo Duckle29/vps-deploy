@@ -1,0 +1,32 @@
+---
+- name: Ensure ufw is installed
+  package:
+    name: ufw
+    state: present
+
+- name: Copy ufw application templates
+  template:
+    src: '{{ item }}'
+    dest: '/etc/ufw/applications.d/{{ item[:-3] }}'
+  with_fileglob:
+    - templates/*.j2
+
+- name: Reload ufw
+  ufw:
+    state: reloaded
+
+- name: Allow apps
+  ufw:
+    app: ufw_allowed_apps
+    rule: allow
+
+- name: Set up default outgoing policy
+  ufw:
+    default: '{{ ufw_default_outgoing }}'
+    direction: outgoing
+
+- name: Set up default incoming policy and enable UFW
+  ufw:
+    state: enabled
+    default: '{{ ufw_default_incoming }}'
+    direction: incoming

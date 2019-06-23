@@ -1,0 +1,10 @@
+---
+ufw_allowed_apps:
+  - Deluge
+  - Teamspeak 3 - Full
+  - UniFi STUN
+  - OpenSSH
+  - Nginx Full
+
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
