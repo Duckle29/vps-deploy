@@ -24,7 +24,7 @@
     acme_sh_copy_certs_to_path: '{{ cert_dir }}'
     acme_sh_become_user: "root"
 
-    acme_sh_default_staging: True
+    acme_sh_default_staging: false
     acme_sh_default_force_issue: false
     acme_sh_default_dns_provider: "dns_cf"
     acme_sh_default_dns_sleep: 120
