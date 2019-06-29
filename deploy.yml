@@ -251,6 +251,7 @@
     sopel_nick: DumDuckBot
     sopel_auth_user: '{{ sopel_irc_user }}'
     sopel_auth_pass: '{{ sopel_irc_pass }}'
+    sopel_install_dir: '/srv/sopel'
 
     sopel_channels: 
       - '##botspam'
@@ -289,8 +290,25 @@
       fixer_io_key = {{ fixer_io_key }}
       auto_convert = true
   
+  handlers:
+    - name: restart sopel
+      become: true
+      service:
+        name: 'sopel-{{ sopel_instance_name }}'
+        state: restarted
+  
   roles:
     - sopel.sopel
+  
+  post_tasks:
+    - name: Install wolfram plugin
+      pip:
+        name: sopel-modules.wolfram
+        state: present
+        virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
+        virtualenv_command: '/usr/bin/python3 -m venv'
+      notify: restart sopel
+    
 
 - name: Set up autotorrent
   hosts: vps
