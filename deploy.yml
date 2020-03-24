@@ -429,6 +429,7 @@
       cron:
         name: 'autotorrent: Check for new version'
         user: 'deluge'
+        minute: '0'
         hour: '*/1'
         job: /usr/bin/python3 /srv/deluge/torrentGen/octopi/check.py
 
