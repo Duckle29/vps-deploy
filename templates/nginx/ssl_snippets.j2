@@ -12,7 +12,7 @@ ssl_session_tickets off;
 ssl_stapling on;
 ssl_stapling_verify on;
 
-add_header Strict-Transport-Security "max-age=63072000; includeSubDomains;";
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains;" always;
 add_header X-Frame-Options sameorigin;
 add_header X-Content-Type-Options nosniff;
 add_header X-XSS-Protection "1; mode=block";
