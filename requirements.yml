@@ -7,4 +7,5 @@
 - src: geerlingguy.php
 - src: geerlingguy.mysql
 - src: aalaesar.install_nextcloud
+- src: jnv.unattended-upgrades
 #- src: nkakouros.nextcloud
