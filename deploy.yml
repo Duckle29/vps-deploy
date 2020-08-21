@@ -34,6 +34,8 @@
     acme_sh_domains:
       - domains: ["mikkel.cc", "*.mikkel.cc"]
         debug: False
+      - domains: [someboards.com, "*.someboards.com"]
+        install_cert_reloadcmd: "cp /etc/ssl/ansible/someboards.com.pem /opt/mailcow-dockerized/data/assets/ssl/cert.pem;cp /etc/ssl/ansible/someboards.com.key /opt/mailcow-dockerized/data/assets/ssl/key.pem;postfix_c=$(docker ps -qaf name=postfix-mailcow);dovecot_c=$(docker ps -qaf name=dovecot-mailcow);nginx_c=$(docker ps -qaf name=nginx-mailcow);docker restart ${postfix_c} ${dovecot_c} ${nginx_c}"
     
     dhparams_remote_directory: '{{ cert_dir }}'
     dhparams_key_size: 4096
@@ -226,7 +228,7 @@
         name: ['curl', 'netcat', 'sudo', 'bash']
         state: present
 
-    - name: Check that UNMS isn't already aalaesar.install_nextcloud
+    - name: Check that UNMS isn't already installed
       stat:
         path: /home/unms/app/unms-cli
       register: unms_stat
@@ -308,7 +310,6 @@
         virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
         virtualenv_command: '/usr/bin/python3 -m venv'
       notify: restart sopel
-    
 
 - name: Set up autotorrent
   hosts: vps
@@ -488,3 +489,13 @@
   
   roles:
     - ufw
+
+- name: Configure unattended upgrades
+  hosts: vps
+  become: true
+  tags:
+    - unattended_upgrades
+  
+  roles:
+    - role: jnv.unattended-upgrades
+      unattended_mail: 'mikkel@mikkel.cc'
