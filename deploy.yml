@@ -10,6 +10,22 @@
   - name: install python
     raw: test -e /usr/bin/python || (apt -y update && apt install -y python python3)
 
+- name: Ensure sudo user mikkel is present
+  hosts: vps
+  become: true
+  
+  tasks:
+    - name: Ensure user is present and part of sudoers
+      user:
+        name: mikkel
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+        password: '{{ user_mikkel_pass }}'
+
+        generate_ssh_key: yes
+        ssh_key_bits: 4096
+
 - name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
   become: true
@@ -43,6 +59,24 @@
   roles:
     - { role: "nickjj.acme_sh", tags: ["acme_sh"] }
     - duckle29.dhparam
+
+- name: Install the latest version of Docker-CE
+  hosts: vps
+  become: true
+  tags:
+    - docker
+  
+  vars:
+    docker_edition: 'ce'
+    docker_package_state: latest
+
+    docker_service_state: started
+    docker_service_enabled: true
+
+    docker_install_compose: true
+    
+    docker_users:
+      - mikkel  
 
 - name: Install nginx
   hosts: vps
@@ -146,10 +180,15 @@
 
     - name: Get the latest release info
       uri:
+        method: GET
         url: https://api.github.com/repos/thelounge/thelounge/releases/latest
         return_content: true
       register: lounge_json_response
-      failed_when: lounge_json_response.json.assets.0.content_type != "application/x-debian-package"
+    
+    - name: Latest version is
+      debug:
+        msg: "{{ lounge_json_response.json.assets.0.browser_download_url | regex_replace('^.*thelounge_((\\d\\.*)+)_all\\.deb', '\\1') }}"
+      failed_when: lounge_json_response.json.assets.0.browser_download_url is not regex("thelounge_((\d\.*)+)_all\.deb")
 
     - name: Get the latest thelounge .deb
       get_url: 
