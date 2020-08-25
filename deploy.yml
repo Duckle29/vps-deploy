@@ -5,6 +5,7 @@
   gather_facts: false
   tags:
     - bootstrap
+    - python
 
   tasks:
   - name: install python
@@ -59,6 +60,20 @@
   roles:
     - { role: "nickjj.acme_sh", tags: ["acme_sh"] }
     - duckle29.dhparam
+
+- name: Ensure the required python-docker bindings are installed
+  hosts: vps
+  become: true
+  tags:
+    - docker
+    - python
+  
+  tasks:
+    - name: Install docker api and docker-compose api
+      pip:
+        name:
+          - docker
+          - docker-compose
 
 - name: Install the latest version of Docker-CE
   hosts: vps
@@ -254,6 +269,84 @@
       apt:
         name: unifi
         state: present
+
+- name: Install PartKeepr
+  hosts: vps
+  become: true
+  tags:
+    - partkeepr    
+
+  vars_files:
+    - vars/credentials.yml
+  
+  vars:
+    pk_db_name: partkeepr
+    pk_db_user: partkeepr
+    pk_db_host: partkeepr-mariadb
+
+    pk_cron: '0 0,6,12,18 * * *  /usr/bin/php /var/www/html/app/console partkeepr:cron:run'
+  
+  tasks:
+    - name: Ensure the partkeepr docker network exists
+      docker_network:
+        name: partkeepr
+        internal: no
+    
+    - name: Create a volume for persisiting the database
+      docker_volume:
+        name: pk_mariadb
+    
+    - name: Create a volume for persisting the partkeeper data
+      docker_volume:
+        name: pk_data
+
+    - name: Ensure MariaDB container is running
+      docker_container:
+        name: '{{ pk_db_host }}'
+        image: mariadb:10.1
+        state: started
+        pull: true
+        mounts:
+          - source: pk_mariadb
+            target: /var/lib/mysql
+        env:
+          MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+          MYSQL_DATABASE: '{{ pk_db_name | string }}'
+          MYSQL_USER: '{{ pk_db_user | string }}'
+          MYSQL_PASSWORD: "{{ pk_db_pass | string }}"
+
+        networks_cli_compatible: yes
+        networks:
+          - name: partkeepr
+
+    - name: Ensure PartKeepr container is running
+      docker_container:
+        name: partkeepr
+        image: "mhubig/partkeepr"
+        state: started
+        pull: true
+        mounts:
+          - source: pk_data
+            target: /var/www/html/data
+        env:
+          PARTKEEPR_OCTOPART_APIKEY: '{{ pk_octopart_token | string}}'
+          PARTKEEPR_DATABASE_HOST: '{{ pk_db_host | string }}'
+          PARTKEEPR_DATABASE_USER: '{{ pk_db_user | string }}'
+          PARTKEEPR_DATABASE_NAME: '{{ pk_db_name | string }}'
+          PARTKEEPR_DATABASE_PASS: '{{ pk_db_pass | string }}'
+          PARTKEEPR_DATABASE_PORT: '3306'
+
+
+        networks_cli_compatible: yes
+        networks:
+          - name: partkeepr
+        ports:
+          - "127.0.0.1:8085:80/tcp"
+
+    - name: Inject partkeepr cronjob into its container
+      shell: "docker exec partkeepr bash -lc \"( crontab -l | echo {{pk_cron | quote }}) | sort - | uniq - | crontab - \""
+      changed_when: False
+
 
 - name: Install UNMS
   hosts: vps
