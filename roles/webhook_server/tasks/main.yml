@@ -29,7 +29,7 @@
 - name: Install ansible python requirements
   become: true
   package:
-    name: [python-pip, python-setuptools, python3-pip, python3-setuptools]
+    name: [python3-pip, python3-setuptools]
     state: present
 
 - name: Install webhook_server dependencies - Debian

@@ -2,30 +2,67 @@
 - name: Bootstrap python 3
   hosts: vps
   become: true
-  gather_facts: false
   tags:
     - bootstrap
-    - python
+    - python 
 
-  tasks:
-  - name: install python
-    raw: test -e /usr/bin/python || (apt -y update && apt install -y python python3)
+  roles:
+      - mrlesmithjr.ansible_bootstrap_python
+
+  post_tasks:
+    - name: Ensure a locale exists
+      locale_gen:
+        name: en_US.UTF-8
+        state: present
+
 
 - name: Ensure sudo user mikkel is present
   hosts: vps
   become: true
-  
+
+  vars_files:
+    - vars/credentials.yml
+
   tasks:
+    - name: Set become group (Ubuntu)
+      set_fact: become_group="sudo"
+      when: ansible_os_family | lower == "debian"
+
+    - name: Set become group (Redhat)
+      set_fact: become_group="wheel"
+      when: ansible_os_family | lower == "redhat"
+
     - name: Ensure user is present and part of sudoers
       user:
         name: mikkel
         shell: /bin/bash
-        groups: sudo
+        groups: '{{ become_group }}'
         append: yes
         password: '{{ user_mikkel_pass }}'
-
         generate_ssh_key: yes
         ssh_key_bits: 4096
+
+
+- name: Harden SSH
+  hosts: vps
+  become: true
+  tags:
+    - ssh
+
+  vars:
+    sshd_log_level: 'INFO'
+
+    
+  pre_tasks:
+    - name: Set authorized ssh keys
+      authorized_key:
+        user: mikkel
+        state: present
+        key: https://github.com/Duckle29.keys
+
+  roles:
+    - dev-sec.ssh-hardening
+
 
 - name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
@@ -50,9 +87,7 @@
 
     acme_sh_domains:
       - domains: ["mikkel.cc", "*.mikkel.cc"]
-        debug: False
-      - domains: [someboards.com, "*.someboards.com"]
-        install_cert_reloadcmd: "cp /etc/ssl/ansible/someboards.com.pem /opt/mailcow-dockerized/data/assets/ssl/cert.pem;cp /etc/ssl/ansible/someboards.com.key /opt/mailcow-dockerized/data/assets/ssl/key.pem;postfix_c=$(docker ps -qaf name=postfix-mailcow);dovecot_c=$(docker ps -qaf name=dovecot-mailcow);nginx_c=$(docker ps -qaf name=nginx-mailcow);docker restart ${postfix_c} ${dovecot_c} ${nginx_c}"
+        debug: False 
     
     dhparams_remote_directory: '{{ cert_dir }}'
     dhparams_key_size: 4096
@@ -91,7 +126,10 @@
     docker_install_compose: true
     
     docker_users:
-      - mikkel  
+      - mikkel
+  
+  roles:
+    - geerlingguy.docker
 
 - name: Install nginx
   hosts: vps
@@ -190,7 +228,7 @@
       include_role:
         name: geerlingguy.nodejs
       vars:
-        nodejs_version: "11.x"
+        nodejs_version: "12.x"
         nodejs_install_npm_user: root
 
     - name: Get the latest release info
@@ -290,6 +328,10 @@
     - name: Ensure the partkeepr docker network exists
       docker_network:
         name: partkeepr
+        ipam_config:
+          - subnet: 10.100.100.0/28
+            gateway: 10.100.100.2
+            iprange: 10.100.100.0/28
         internal: no
     
     - name: Create a volume for persisiting the database
@@ -461,11 +503,13 @@
   tasks:
     - name: Add deluge ppa
       apt_repository:
-        repo: ppa:deluge-team/ppa
+        repo: ppa:deluge-team/stable
 
     - name: Install deluged
       apt:
-        name: deluged
+        name:
+          - deluged
+          - deluge-console
         state: present
     
     - name: Add deluge system user
@@ -483,21 +527,6 @@
       when: ansible_service_mgr == 'systemd'
       notify:
         - reload systemd
-      
-    - name: Start deluged to generate configs
-      service:
-        name: deluged
-        state: started
-
-    - name: Wait to allow deluge to generate config files
-      pause:
-        seconds: 5
-
-    - name: Stop deluged
-      service:
-        name: deluged
-        state: stopped
-
 
     - name: Add deluge admin user
       lineinfile:
@@ -505,17 +534,14 @@
         line: '{{ deluge_user }}:{{ deluge_pass }}:10'
         create: true
 
-    - name: Allow remote connections
-      lineinfile:
-        path: /srv/deluge/.config/deluge/core.conf
-        regexp: '^  "allow_remote":'
-        line: '  "allow_remote": true,'
-  
     - name: Start and enable deluged
       service:
         name: deluged
         state: started
         enabled: yes
+    
+    - name: Allow remote connections
+      shell: 'deluge-console "config -s allow_remote True"'
 
     - name: Ensure autoadd folder is present
       file:
