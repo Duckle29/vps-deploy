@@ -391,6 +391,7 @@
       - '##botspam'
       - '#reprap'
       - '#bigdelta'
+      - '#partkeepr'
 
     sopel_bot_owner: 'Duckle29'
 
