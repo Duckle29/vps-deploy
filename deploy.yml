@@ -449,6 +449,7 @@
   become: true
   tags:
     - autotorrent
+    - deluge
 
   vars_files:
     - vars/credentials.yml
@@ -462,11 +463,13 @@
   tasks:
     - name: Add deluge ppa
       apt_repository:
-        repo: ppa:deluge-team/ppa
+        repo: ppa:deluge-team/stable
 
     - name: Install deluged
       apt:
-        name: deluged
+        name: 
+          - deluged
+          - deluge-console
         state: present
     
     - name: Add deluge system user
@@ -484,46 +487,35 @@
       when: ansible_service_mgr == 'systemd'
       notify:
         - reload systemd
-      
-    - name: Start deluged to generate configs
-      service:
-        name: deluged
-        state: started
-
-    - name: Wait to allow deluge to generate config files
-      pause:
-        seconds: 5
-
-    - name: Stop deluged
-      service:
-        name: deluged
-        state: stopped
-
 
     - name: Add deluge admin user
       lineinfile:
-        path: /srv/deluge/.config/deluge/auth
         line: '{{ deluge_user }}:{{ deluge_pass }}:10'
+        path: /srv/deluge/.config/deluge/auth
         create: true
 
-    - name: Allow remote connections
-      lineinfile:
-        path: /srv/deluge/.config/deluge/core.conf
-        regexp: '^  "allow_remote":'
-        line: '  "allow_remote": true,'
-  
+    - name: Ensure file ownership
+      file:
+        path: /srv/deluge
+        recurse: yes
+        owner: deluge
+        group: deluge
+
     - name: Start and enable deluged
       service:
         name: deluged
         state: started
         enabled: yes
 
-    - name: Ensure autoadd folder is present
-      file:
-        path: '/srv/deluge/torrentGen/autoadd'
-        state: directory
-        owner: deluge
-        group: deluge
+    - pause:
+        seconds: 5
+        prompt: "Wait for deluged to start"
+
+    - name: Allow remote connections
+      shell: deluge-console "config -s allow_remote True"
+      become_user: deluge
+      register: ret
+      failed_when: "'successfully updated' not in ret.stdout"
 
     - name: Install feedgen
       pip:
@@ -553,6 +545,13 @@
         dest: /srv/deluge/torrentGen
         update: no
     
+    - name: Ensure autoadd folder is present
+      file:
+        path: '/srv/deluge/torrentGen/autoadd'
+        state: directory
+        owner: deluge
+        group: deluge
+
     - name: Set correct webroot in torrent gen script
       lineinfile:
         line: "webroot          = '{{ autotorrent_webroot }}/octopi/'"
