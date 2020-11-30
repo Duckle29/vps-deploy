@@ -1,0 +1,13 @@
+---
+portmap:
+  thelounge:
+    - 9000
+
+  nextcloud:
+    - 8100
+
+  unms:
+    - 9443
+
+  usdn:
+    - 8443

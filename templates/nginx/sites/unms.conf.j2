@@ -22,12 +22,12 @@ server {
 }
 
 server {
-  server_name unms.{{ domain }};
+  server_name unms.{{ domain }} unms2.{{ domain }};
 
   listen 443 ssl http2;
   include snippets/ssl;
 
-  set $upstream 127.0.0.1:9443;
+  set $upstream 127.0.0.1:{{ portmap.unms[0] }};
 
   location / {
 	access_log /var/log/nginx/access.log combined if=$loggable;
