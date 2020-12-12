@@ -342,7 +342,7 @@
       - '#bigdelta'
       - '#partkeepr'
 
-    sopel_bot_owner: 'Duckle29'
+    sopel_bot_owner: 'Duckle'
 
     sopel_enabled_plugins:
       - help
@@ -524,7 +524,7 @@
   become: True
   tags:
     - nextcloud
-  
+
   vars_files:
     - vars/shared_vars.yml
     - vars/port_usage.yml
@@ -665,6 +665,91 @@
         - '^[\t| ]*Header always set X-Frame-Options "SAMEORIGIN".*$'
         - '^[\t| ]*Header onsuccess unset X-Content-Type-Options.*$'
         - '^[\t| ]*Header always set X-Content-Type-Options "nosniff".*$'
+
+- name: Install Shlink URL shortener
+  hosts: vps
+  become: True
+  tags:
+    - shlink
+    - urlshort
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    - name: Create shlink network
+      community.general.docker_network:
+        name: shlink
+      
+    - name: Create shlink mysql volume
+      community.general.docker_volume:
+        name: shlink_db
+
+    - name: Set up mysql database for shlink
+      community.general.docker_container:
+        name: shlink-mariadb
+        image: mariadb
+        command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
+        networks:
+          - name: shlink
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'shlink_db:/var/lib/mysql'
+        env:
+            MYSQL_ROOT_PASSWORD: '{{ mysql_root_pass }}'
+            MYSQL_PASSWORD: '{{ shlink_database_pass }}'
+            MYSQL_DATABASE: 'shlink'
+            MYSQL_USER: 'shlink'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Start Shlink container
+      community.general.docker_container:
+        name: shlink
+        image: shlinkio/shlink:stable
+        networks:
+          - name: shlink
+          - name: bridge
+        ports:
+          - '{{ portmap.shlink[0] }}:8080'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        env:
+            SHORT_DOMAIN_HOST: 'sh.{{ domain }}'
+            SHORT_DOMAIN_SCHEMA: 'https'
+            GEOLITE_LICENSE_KEY: '{{ shlink_geolite_token }}'
+            DB_DRIVER: 'maria'
+            DB_NAME: shlink
+            DB_USER: shlink
+            DB_PASSWORD: '{{ shlink_database_pass }}'
+            DB_HOST: shlink-mariadb
+            DISABLE_TRACK_PARAM: no-track
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 
 - name: Set up firewall
   hosts: vps

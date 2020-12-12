@@ -11,3 +11,23 @@ portmap:
 
   usdn:
     - 8443
+    - 6789
+    - 8843
+    - 8880
+    - 8080
+
+  mariadb:
+    - 3306
+  
+  webhook_serv:
+    - 5012
+  
+  deluged:
+    - 3769
+  
+  mongodb:
+    - 27017
+    - 27117
+
+  shlink:
+    - 8200
