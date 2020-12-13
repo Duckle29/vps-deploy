@@ -1,0 +1,20 @@
+[Unit]
+Description=0bin: a client side encrypted pastebin
+Documentation=https://github.com/Tygs/0bin
+After=network.target
+
+[Service]
+Type=simple
+User=zerobin
+ExecStart={{ zerobin_install_dir }}/venv_{{ zerobin_instance_name }}/bin/zerobin \
+    --config-dir={{zerobin_config_dir}}/{{zerobin_instance_name}} \
+    --data-dir={{zerobin_data_dir}}/{{zerobin_instance_name}} \
+    --port={{zerobin_port}}
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=30
+Environment=LC_ALL=en_US.UTF-8
+SyslogIdentifier=zerobin-{{ zerobin_instance_name }}
+
+[Install]
+WantedBy=multi-user.target

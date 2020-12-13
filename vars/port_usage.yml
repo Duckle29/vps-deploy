@@ -31,3 +31,6 @@ portmap:
 
   shlink:
     - 8200
+
+  zerobin:
+    - 8300

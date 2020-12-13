@@ -1,0 +1,7 @@
+---
+- name: restart zerobin
+  become: true
+  service:
+    name: 'zerobin-{{ zerobin_instance_name }}'
+    state: restarted
+  when: zerobin_start_systemd_service|bool
