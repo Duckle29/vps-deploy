@@ -31,3 +31,6 @@ portmap:
 
   shlink:
     - 8200
+
+  bepasty:
+    - 8300

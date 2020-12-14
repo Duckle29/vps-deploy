@@ -1,0 +1,65 @@
+---
+- name: Add 0bin system user
+  become: true
+  user:
+    name: zerobin
+    password: '!'
+    home: '{{ zerobin_install_dir }}'
+    system: true
+    state: present
+
+- name: 0bin folders
+  become: true
+  file:
+    path: '{{ item }}'
+    owner: zerobin
+    group: zerobin
+    mode: 0744
+    state: directory
+  with_items:
+    - '{{ zerobin_install_dir }}'
+    - '{{ zerobin_config_dir }}/{{ zerobin_instance_name }}'
+    - '{{ zerobin_data_dir }}/{{ zerobin_instance_name }}'
+
+- name: Add 0bin systemd service
+  become: true
+  template:
+    owner: root
+    group: root
+    mode: 0644
+    src: templates/zerobin.service.j2
+    dest: /etc/systemd/system/zerobin-{{ zerobin_instance_name }}.service
+  notify: restart zerobin
+  when: zerobin_install_systemd_service|bool
+
+- name: Copy 0bin config
+  become: true
+  template:
+    owner: zerobin
+    group: zerobin
+    mode: 0644
+    src: templates/settings.py.j2
+    dest: '{{ zerobin_config_dir }}/{{ zerobin_instance_name }}/settings.py'
+  notify: restart zerobin
+
+- name: Install 0bin
+  environment:
+    LC_ALL: 'en_US.UTF-8'
+  pip:
+    name: [pip>19, setuptools>40, zerobin>1]
+    state: present
+    virtualenv: '{{ zerobin_install_dir }}/venv_{{ zerobin_instance_name }}'
+    virtualenv_command: '{{ zerobin_venv_cmd }}'
+  notify: restart zerobin
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: true
+  when: ansible_service_mgr == "systemd"
+
+- name: Enable zerobin systemd service
+  become: true
+  service:
+    name: 'zerobin-{{ zerobin_instance_name }}'
+    enabled: true
+  when: zerobin_install_systemd_service|bool

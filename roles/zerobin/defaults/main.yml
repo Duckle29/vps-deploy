@@ -1,0 +1,13 @@
+---
+zerobin_install_dir: '/srv/zerobin'
+zerobin_config_dir: '/etc/zerobin'
+zerobin_data_dir: '/srv/zerobin/data'
+
+zerobin_port: '8300'
+zerobin_host: '127.0.0.1'
+
+zerobin_instance_name: 'default'
+zerobin_venv_cmd: '/usr/bin/python3 -m venv'
+
+zerobin_start_systemd_service: yes
+zerobin_install_systemd_service: yes
