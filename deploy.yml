@@ -1,31 +1,65 @@
 ---
-- name: Bootstrap python 3
+- name: Bootstrap python 3 and such
   hosts: vps
   become: true
-  gather_facts: false
   tags:
     - bootstrap
-    - python
+    - python 
 
-  tasks:
-  - name: install python
-    raw: test -e /usr/bin/python || (apt -y update && apt install -y python python3)
+  roles:
+      - mrlesmithjr.ansible_bootstrap_python
+
+  post_tasks:
+    - name: Ensure a locale exists
+      locale_gen:
+        name: en_US.UTF-8
+        state: present
 
 - name: Ensure sudo user mikkel is present
   hosts: vps
   become: true
-  
+
+  vars_files:
+    - vars/credentials.yml
+
   tasks:
+    - name: Set become group (Ubuntu)
+      set_fact: become_group="sudo"
+      when: ansible_os_family | lower == "debian"
+
+    - name: Set become group (Redhat)
+      set_fact: become_group="wheel"
+      when: ansible_os_family | lower == "redhat"
+
     - name: Ensure user is present and part of sudoers
       user:
         name: mikkel
         shell: /bin/bash
-        groups: sudo
+        groups: '{{ become_group }}'
         append: yes
         password: '{{ user_mikkel_pass }}'
-
         generate_ssh_key: yes
         ssh_key_bits: 4096
+
+- name: Harden SSH
+  hosts: vps
+  become: true
+  tags:
+    - ssh
+
+  vars:
+    sshd_log_level: 'INFO'
+
+    
+  pre_tasks:
+    - name: Set authorized ssh keys
+      authorized_key:
+        user: mikkel
+        state: present
+        key: https://github.com/Duckle29.keys
+
+  roles:
+    - dev-sec.ssh-hardening
 
 - name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
@@ -50,9 +84,7 @@
 
     acme_sh_domains:
       - domains: ["mikkel.cc", "*.mikkel.cc"]
-        debug: False
-      - domains: [someboards.com, "*.someboards.com"]
-        install_cert_reloadcmd: "cp /etc/ssl/ansible/someboards.com.pem /opt/mailcow-dockerized/data/assets/ssl/cert.pem;cp /etc/ssl/ansible/someboards.com.key /opt/mailcow-dockerized/data/assets/ssl/key.pem;postfix_c=$(docker ps -qaf name=postfix-mailcow);dovecot_c=$(docker ps -qaf name=dovecot-mailcow);nginx_c=$(docker ps -qaf name=nginx-mailcow);docker restart ${postfix_c} ${dovecot_c} ${nginx_c}"
+        debug: False 
     
     dhparams_remote_directory: '{{ cert_dir }}'
     dhparams_key_size: 4096
@@ -91,7 +123,10 @@
     docker_install_compose: true
     
     docker_users:
-      - mikkel  
+      - mikkel
+  
+  roles:
+    - geerlingguy.docker
 
 - name: Install nginx
   hosts: vps
@@ -100,8 +135,8 @@
     - nginx
 
   vars_files:
+    - vars/port_usage.yml
     - vars/shared_vars.yml
-    - vars/nextcloud/php.yml
     - vars/nextcloud/main.yml
 
   pre_tasks:
@@ -140,7 +175,7 @@
         state: absent
       notify:
         - reload nginx
-    
+
     # Deploys all .conf.j2 files in templates/nginx/sites
     - name: Deploy site configs
       template:
@@ -190,7 +225,7 @@
       include_role:
         name: geerlingguy.nodejs
       vars:
-        nodejs_version: "11.x"
+        nodejs_version: "14.x"
         nodejs_install_npm_user: root
 
     - name: Get the latest release info
@@ -243,21 +278,10 @@
     - unifi
 
   tasks:
-    - name: Add an apt key for mongoDB
-      apt_key:
-        keyserver: keyserver.ubuntu.com
-        id: 0C49F3730359A14518585931BC711F9BA15703C6
-
     - name: Add an apt key for unifi
       apt_key:
         keyserver: keyserver.ubuntu.com
         id: 06E85760C0A52C50 
-
-    - name: Add mongoDB repository
-      apt_repository:
-        repo: deb http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.4 multiverse
-        state: present
-        filename: mongodb-org-3.4
 
     - name: Add unifi repository
       apt_repository:
@@ -267,86 +291,11 @@
 
     - name: Install unifi SDN
       apt:
-        name: unifi
+        name: '{{ item }}'
         state: present
-
-- name: Install PartKeepr
-  hosts: vps
-  become: true
-  tags:
-    - partkeepr    
-
-  vars_files:
-    - vars/credentials.yml
-  
-  vars:
-    pk_db_name: partkeepr
-    pk_db_user: partkeepr
-    pk_db_host: partkeepr-mariadb
-
-    pk_cron: '0 0,6,12,18 * * *  /usr/bin/php /var/www/html/app/console partkeepr:cron:run'
-  
-  tasks:
-    - name: Ensure the partkeepr docker network exists
-      docker_network:
-        name: partkeepr
-        internal: no
-    
-    - name: Create a volume for persisiting the database
-      docker_volume:
-        name: pk_mariadb
-    
-    - name: Create a volume for persisting the partkeeper data
-      docker_volume:
-        name: pk_data
-
-    - name: Ensure MariaDB container is running
-      docker_container:
-        name: '{{ pk_db_host }}'
-        image: mariadb:10.1
-        state: started
-        pull: true
-        mounts:
-          - source: pk_mariadb
-            target: /var/lib/mysql
-        env:
-          MYSQL_RANDOM_ROOT_PASSWORD: "yes"
-          MYSQL_DATABASE: '{{ pk_db_name | string }}'
-          MYSQL_USER: '{{ pk_db_user | string }}'
-          MYSQL_PASSWORD: "{{ pk_db_pass | string }}"
-
-        networks_cli_compatible: yes
-        networks:
-          - name: partkeepr
-
-    - name: Ensure PartKeepr container is running
-      docker_container:
-        name: partkeepr
-        image: "mhubig/partkeepr"
-        state: started
-        pull: true
-        mounts:
-          - source: pk_data
-            target: /var/www/html/data
-        env:
-          PARTKEEPR_OCTOPART_APIKEY: '{{ pk_octopart_token | string}}'
-          PARTKEEPR_DATABASE_HOST: '{{ pk_db_host | string }}'
-          PARTKEEPR_DATABASE_USER: '{{ pk_db_user | string }}'
-          PARTKEEPR_DATABASE_NAME: '{{ pk_db_name | string }}'
-          PARTKEEPR_DATABASE_PASS: '{{ pk_db_pass | string }}'
-          PARTKEEPR_DATABASE_PORT: '3306'
-
-
-        networks_cli_compatible: yes
-        networks:
-          - name: partkeepr
-        ports:
-          - "127.0.0.1:8085:80/tcp"
-
-    - name: Inject partkeepr cronjob into its container
-      shell: "docker exec partkeepr bash -lc \"( crontab -l | echo {{pk_cron | quote }}) | sort - | uniq - | crontab - \""
-      changed_when: False
-
+      loop:
+        - openjdk-8-jre-headless
+        - unifi
 
 - name: Install UNMS
   hosts: vps
@@ -391,8 +340,9 @@
       - '##botspam'
       - '#reprap'
       - '#bigdelta'
+      - '#partkeepr'
 
-    sopel_bot_owner: 'Duckle29'
+    sopel_bot_owner: 'Duckle'
 
     sopel_enabled_plugins:
       - help
@@ -413,6 +363,7 @@
       - kthx
       - mcrib
       - ghtx
+      - PartKeepr
     
     sopel_config_extra: |
       [wolfram]
@@ -448,6 +399,7 @@
   become: true
   tags:
     - autotorrent
+    - deluge
 
   vars_files:
     - vars/credentials.yml
@@ -461,11 +413,13 @@
   tasks:
     - name: Add deluge ppa
       apt_repository:
-        repo: ppa:deluge-team/ppa
+        repo: ppa:deluge-team/stable
 
     - name: Install deluged
       apt:
-        name: deluged
+        name:
+          - deluged
+          - deluge-console
         state: present
     
     - name: Add deluge system user
@@ -483,46 +437,38 @@
       when: ansible_service_mgr == 'systemd'
       notify:
         - reload systemd
-      
-    - name: Start deluged to generate configs
-      service:
-        name: deluged
-        state: started
-
-    - name: Wait to allow deluge to generate config files
-      pause:
-        seconds: 5
-
-    - name: Stop deluged
-      service:
-        name: deluged
-        state: stopped
-
 
     - name: Add deluge admin user
       lineinfile:
-        path: /srv/deluge/.config/deluge/auth
         line: '{{ deluge_user }}:{{ deluge_pass }}:10'
+        path: /srv/deluge/.config/deluge/auth
         create: true
 
-    - name: Allow remote connections
-      lineinfile:
-        path: /srv/deluge/.config/deluge/core.conf
-        regexp: '^  "allow_remote":'
-        line: '  "allow_remote": true,'
-  
+    - name: Ensure file ownership
+      file:
+        path: /srv/deluge
+        recurse: yes
+        owner: deluge
+        group: deluge
+
     - name: Start and enable deluged
       service:
         name: deluged
         state: started
         enabled: yes
+    
+    - name: Allow remote connections
+      shell: 'deluge-console "config -s allow_remote True"'
 
-    - name: Ensure autoadd folder is present
-      file:
-        path: '/srv/deluge/torrentGen/autoadd'
-        state: directory
-        owner: deluge
-        group: deluge
+    - pause:
+        seconds: 5
+        prompt: "Wait for deluged to start"
+
+    - name: Allow remote connections
+      shell: deluge-console "config -s allow_remote True"
+      become_user: deluge
+      register: ret
+      failed_when: "'successfully updated' not in ret.stdout"
 
     - name: Install feedgen
       pip:
@@ -552,6 +498,13 @@
         dest: /srv/deluge/torrentGen
         update: no
     
+    - name: Ensure autoadd folder is present
+      file:
+        path: '/srv/deluge/torrentGen/autoadd'
+        state: directory
+        owner: deluge
+        group: deluge
+
     - name: Set correct webroot in torrent gen script
       lineinfile:
         line: "webroot          = '{{ autotorrent_webroot }}/octopi/'"
@@ -566,52 +519,237 @@
         hour: '*/1'
         job: /usr/bin/python3 /srv/deluge/torrentGen/octopi/check.py
 
-- name: Install nextcloud
+- name: Install Nextcloud (docker-apache)
   hosts: vps
-  become: true
+  become: True
   tags:
     - nextcloud
 
   vars_files:
-    - vars/credentials.yml
     - vars/shared_vars.yml
-    - vars/nextcloud/mysql.yml
-    - vars/nextcloud/php.yml
-    - vars/nextcloud/main.yml
-
-  handlers:
-    - name: restart php-fpm
-      service:
-        name: php{{ php_default_version_debian }}-fpm
-        state: restarted
-
-  pre_tasks:
-  - setup:
-    become: no
+    - vars/port_usage.yml
+    - vars/credentials.yml
 
   tasks:
-    - include_role:
-        name: geerlingguy.php
+    - name: Create nextcloud network
+      community.general.docker_network:
+        name: nextcloud
 
-    - name: Change owner of php-fpm socket
+    - name: Create nextcloud mysql volume
+      community.general.docker_volume:
+        name: nextcloud_db
+    
+    - name: Create nextcloud data volume
+      community.general.docker_volume:
+        name: nextcloud_data
+
+    - name: Get data volume path
+      community.general.docker_volume_info:
+        name: nextcloud_data
+      register: nextcloud_data_volume_info
+
+    - name: Set up mysql database for nextcloud
+      community.general.docker_container:
+        name: nextcloud-mariadb
+        image: mariadb
+        command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
+        networks:
+          - name: nextcloud
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'nextcloud_db:/var/lib/mysql'
+        env:
+            MYSQL_ROOT_PASSWORD: '{{ mysql_root_pass }}'
+            MYSQL_PASSWORD: '{{ nc_database_pass }}'
+            MYSQL_DATABASE: 'nextcloud'
+            MYSQL_USER: 'nextcloud'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Set up redis image for nextcloud
+      community.general.docker_container:
+        name: nextcloud-redis
+        image: redis:alpine
+        networks:
+          - name: nextcloud
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Set up nextcloud image
+      community.general.docker_container:
+        name: nextcloud
+        image: nextcloud
+        pull: yes
+        networks:
+          - name: nextcloud
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports:
+          - '{{ portmap.nextcloud[0] }}:80'
+        volumes:
+          - 'nextcloud_data:/var/www/html'
+        env:
+            NEXTCLOUD_TRUSTED_DOMAINS: 'nextcloud.{{ domain }}'
+            REDIS_HOST: nextcloud-redis
+            MYSQL_HOST: nextcloud-mariadb
+            MYSQL_DATABASE: nextcloud
+            MYSQL_USER: nextcloud
+            MYSQL_PASSWORD: '{{ nc_database_pass }}'
+            NEXTCLOUD_ADMIN_USER: '{{ nc_admin_user }}'
+            NEXTCLOUD_ADMIN_PASSWORD: '{{ nc_admin_pass }}'
+            OVERWRITEPROTOCOL: 'https'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Set up cron task for nextcloud
+      community.general.docker_container:
+        name: nextcloud-cron
+        image: nextcloud:apache
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'nextcloud_data:/var/www/html'
+        entrypoint: /cron.sh
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Unset doubled headers
       lineinfile:
-        dest: "/etc/php/{{ php_default_version_debian }}/fpm/pool.d/www.conf"
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-        state: present
-      with_items:
-        - regexp: '^listen\.owner.?=.+$'
-          line: "listen.owner = {{ php_fpm_pool_user }}"
-        - regexp: '^listen\.group.?=.+$'
-          line: "listen.group = {{ php_fpm_pool_group }}"
-      when: php_enable_php_fpm
-      notify:
-        - restart php-fpm
+        path: '{{ nextcloud_data_volume_info.volume.Mountpoint }}/.htaccess'
+        regexp: '{{ item }}'
+        state: 'absent'
+      loop:
+        - '^[\t| ]*Header onsuccess unset X-Frame-Options.*$'
+        - '^[\t| ]*Header always set X-Frame-Options "SAMEORIGIN".*$'
+        - '^[\t| ]*Header onsuccess unset X-Content-Type-Options.*$'
+        - '^[\t| ]*Header always set X-Content-Type-Options "nosniff".*$'
 
-    - include_role:
-        name: geerlingguy.mysql
-    - include_role:
-        name: aalaesar.install_nextcloud
+- name: Install Shlink URL shortener
+  hosts: vps
+  become: True
+  tags:
+    - shlink
+    - urlshort
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    - name: Create shlink network
+      community.general.docker_network:
+        name: shlink
+      
+    - name: Create shlink mysql volume
+      community.general.docker_volume:
+        name: shlink_db
+
+    - name: Set up mysql database for shlink
+      community.general.docker_container:
+        name: shlink-mariadb
+        image: mariadb
+        command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
+        networks:
+          - name: shlink
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'shlink_db:/var/lib/mysql'
+        env:
+            MYSQL_ROOT_PASSWORD: '{{ mysql_root_pass }}'
+            MYSQL_PASSWORD: '{{ shlink_database_pass }}'
+            MYSQL_DATABASE: 'shlink'
+            MYSQL_USER: 'shlink'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Start Shlink container
+      community.general.docker_container:
+        name: shlink
+        image: shlinkio/shlink:stable
+        networks:
+          - name: shlink
+          - name: bridge
+        ports:
+          - '{{ portmap.shlink[0] }}:8080'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        env:
+            SHORT_DOMAIN_HOST: 'sh.{{ domain }}'
+            SHORT_DOMAIN_SCHEMA: 'https'
+            GEOLITE_LICENSE_KEY: '{{ shlink_geolite_token }}'
+            DB_DRIVER: 'maria'
+            DB_NAME: shlink
+            DB_USER: shlink
+            DB_PASSWORD: '{{ shlink_database_pass }}'
+            DB_HOST: shlink-mariadb
+            DISABLE_TRACK_PARAM: no-track
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 
 - name: Set up firewall
   hosts: vps

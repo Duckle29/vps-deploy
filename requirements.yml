@@ -9,4 +9,5 @@
 - src: geerlingguy.docker
 - src: aalaesar.install_nextcloud
 - src: jnv.unattended-upgrades
-#- src: nkakouros.nextcloud
+- src: mrlesmithjr.ansible_bootstrap_python
+- src: dev-sec.ssh-hardening

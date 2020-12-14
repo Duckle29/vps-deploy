@@ -5,7 +5,6 @@ ufw_allowed_apps:
   - UniFi STUN
   - OpenSSH
   - Nginx Full
-  - Mailcow
 
 ufw_default_incoming: deny
 ufw_default_outgoing: allow

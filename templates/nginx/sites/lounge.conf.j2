@@ -6,7 +6,7 @@ server {
 	client_max_body_size 20M;
 
 	location / {
-		proxy_pass http://127.0.0.1:9000/;
+		proxy_pass http://127.0.0.1:{{ portmap.thelounge[0] }}/;
 		proxy_http_version 1.1;
 		proxy_set_header Connection "upgrade";
 		proxy_set_header Upgrade $http_upgrade;
