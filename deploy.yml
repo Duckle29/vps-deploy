@@ -751,6 +751,7 @@
         auto_remove: no
 
 - name: Install 0bin
+  when: no
   hosts: vps
   become: true
   tags:
@@ -758,8 +759,8 @@
     - zerobin
   
   vars_files:
-    vars/shared_vars.yml
-    vars/port_usage.yml
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
   
   vars:
     zerobin_port: '{{ portmap.zerobin[0] }}'

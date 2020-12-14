@@ -1,12 +1,5 @@
 # '{{ansible_managed}}'
 
-map $sent_http_content_type $expires {
-    default                    off;
-    text/css                   30d;
-    application/javascript     30d;
-    image/x-icon               30d;
-}
-
 server {
     server_name paste.{{ domain }};
 
@@ -16,14 +9,11 @@ server {
     gzip on;
     gzip_types text/plain application/xml text/css application/javascript;
 
-    expires $expires;
     location  / {
-        proxy_pass http://127.0.0.1:{{ portmap.pastebin[0] }}/;
+        proxy_pass http://127.0.0.1:{{ portmap.zerobin[0] }}/;
         proxy_set_header        Host $host;
         proxy_set_header        X-Real-IP $remote_addr;
         proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header        X-Forwarded-Proto $scheme;
     }
-
-    access_log /var/log/nginx/access.log;
 }

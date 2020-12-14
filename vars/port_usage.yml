@@ -32,5 +32,5 @@ portmap:
   shlink:
     - 8200
 
-  zerobin:
+  bepasty:
     - 8300

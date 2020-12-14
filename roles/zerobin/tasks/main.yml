@@ -32,6 +32,16 @@
   notify: restart zerobin
   when: zerobin_install_systemd_service|bool
 
+- name: Copy 0bin config
+  become: true
+  template:
+    owner: zerobin
+    group: zerobin
+    mode: 0644
+    src: templates/settings.py.j2
+    dest: '{{ zerobin_config_dir }}/{{ zerobin_instance_name }}/settings.py'
+  notify: restart zerobin
+
 - name: Install 0bin
   environment:
     LC_ALL: 'en_US.UTF-8'
