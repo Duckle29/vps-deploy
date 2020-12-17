@@ -750,23 +750,105 @@
         detach: yes
         auto_remove: no
 
-- name: Install 0bin
-  when: no
+- name: Install bepasty
   hosts: vps
   become: true
   tags:
     - pastebin
-    - zerobin
+    - bepasty
   
   vars_files:
     - vars/shared_vars.yml
     - vars/port_usage.yml
+    - vars/credentials.yml
   
-  vars:
-    zerobin_port: '{{ portmap.zerobin[0] }}'
-  
-  roles:
-    - zerobin
+  tasks:
+    - name: Create bepasty volume
+      community.general.docker_volume:
+        name: bepasty_data
+    
+    - name: Start bepasty container
+      community.general.docker_container:
+        name: bepasty
+        image: duckle/bepasty:stable
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.bepasty[0] }}:5000'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'bepasty_data:/srv/bepasty'
+        env:
+            STORAGE_FILESYSTEM_DIRECTORY: "'/srv/bepasty/storage'"
+            SITENAME: "'paste.{{ domain }}'"
+            UPLOAD_LOCKED: 'False'
+            MAX_ALLOWED_FILE_SIZE: '5 * 1000 * 1000 * 1000'
+            MAX_BODY_SIZE: '1 * 1024 * 1024'
+            STORAGE: "'filesystem'"
+            SECRET_KEY: "'{{ bepasty_secret }}'"
+            SESSION_COOKIE_SECURE: 'True'
+            PERMANENT_SESSION: 'False'
+            PERMANENT_SESSION_LIFETIME: '31 * 24 * 3600'
+            DEFAULT_PERMISSIONS: "'read'"
+            PERMISSIONS: "{{ bepasty_permissions | join(', ') }}"
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+- name: Install and set up CoCalc
+  become: True
+  tags:
+    - cocalc
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    - name: Create cocalc network
+      community.general.docker_network:
+        name: cocalc
+
+    - name: Create cocalc data volume
+      community.general.docker_volume:
+        name: cocalc_data
+
+    - name: Start CoCalc container
+      community.general.docker_container:
+        name: cocalc
+        image: sagemathinc/cocalc
+        networks:
+          - name: cocalc
+          - name: bridge
+        ports:
+          - '{{ portmap.cocalc[0] }}:443'
+        volumes:
+          - cocalc_data:/projects
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
 
 - name: Set up firewall
   hosts: vps

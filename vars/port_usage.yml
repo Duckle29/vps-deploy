@@ -34,3 +34,6 @@ portmap:
 
   bepasty:
     - 8300
+
+  cocalc:
+    - 8400
