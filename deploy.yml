@@ -807,6 +807,7 @@
 
 - name: Install and set up CoCalc
   become: True
+  hosts: vps
   tags:
     - cocalc
 
@@ -816,11 +817,7 @@
     - vars/credentials.yml
 
   tasks:
-    - name: Create cocalc network
-      community.general.docker_network:
-        name: cocalc
-
-    - name: Create cocalc data volume
+    - name: Create CoCalc data volume
       community.general.docker_volume:
         name: cocalc_data
 
@@ -829,7 +826,6 @@
         name: cocalc
         image: sagemathinc/cocalc
         networks:
-          - name: cocalc
           - name: bridge
         ports:
           - '{{ portmap.cocalc[0] }}:443'
