@@ -8,4 +8,8 @@ server {
     try_files   $uri    /index.html;
 
     include             snippets/ssl;
+    
+    location ~ /\.git {
+        return 404;
+    }
 }

@@ -11,11 +11,9 @@
     dest: '{{ wh_server_install_dir }}'
 
 - name: Copy config template to config
-  copy:
-    src: '{{ wh_server_install_dir }}/config.json.template'
-    dest: '{{ wh_server_install_dir }}/config.json'
-    remote_src: true
-    force: false
+  template:
+    src: '{{ wh_server_config }}'
+    dest: '{{ wh_server_install_dir }}/config.ini'
 
 - name: add gunicorn system user
   become: true
@@ -26,12 +24,6 @@
     system: true
     state: present
 
-- name: Install ansible python requirements
-  become: true
-  package:
-    name: [python3-pip, python3-setuptools]
-    state: present
-
 - name: Install webhook_server dependencies - Debian
   pip:
     requirements: '{{ wh_server_install_dir }}/requirements.txt'
@@ -40,27 +32,6 @@
     virtualenv_command: '/usr/bin/python3 -m venv'
   when:
     - ansible_os_family == 'Debian'
-
-- name: Install webhook_server dependencies - Redhat
-  pip:
-    requirements: '{{ wh_server_install_dir }}/requirements.txt'
-    state: present
-    virtualenv: '{{ wh_server_install_dir }}/venv'
-    virtualenv_command: '/usr/bin/python3.6 -m venv'
-  when:
-    - ansible_os_family == 'RedHat'
-
-- name: Insert github secret in config
-  lineinfile:
-    path: '{{ wh_server_install_dir }}/config.json'
-    line: '  "gh_secret": "{{ wh_server_secret }}",'
-    regexp: '"gh_secret":'
-
-- name: Insert webroot path in config
-  lineinfile:
-    path: '{{ wh_server_install_dir }}/config.json'
-    line: '    "path": "{{ mikkelcc_webroot }}",'
-    regexp: '"path":'
 
 - name: Change filer ownership
   file:

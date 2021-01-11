@@ -1,0 +1,13 @@
+# '{{ansible_managed}}'
+
+[main]
+github_secret = {{ wh_server_secret }}
+endpoint = {{ wh_server_endpoint }}
+
+[Duckle29/startbootstrap-resume]
+clone_uri = https://github.com/Duckle29/startbootstrap-resume
+path = {{ mikkelcc_webroot }}
+
+[Duckle29/blog]
+clone_uri = https://github.com/Duckle29/blog
+path = {{ blog_webroot }}

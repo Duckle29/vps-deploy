@@ -37,7 +37,7 @@
         shell: /bin/bash
         groups: '{{ become_group }}'
         append: yes
-        password: '{{ user_mikkel_pass }}'
+        password: '{{ system_user_pass }}'
         generate_ssh_key: yes
         ssh_key_bits: 4096
 
@@ -176,7 +176,27 @@
       notify:
         - reload nginx
 
-    # Deploys all .conf.j2 files in templates/nginx/sites
+- name: Deploy nginx site configs
+  hosts: vps
+  become: True
+  tags:
+    - sites
+    - nginx
+
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded
+
+  vars_files:
+    - vars/port_usage.yml
+    - vars/shared_vars.yml
+    - vars/nextcloud/main.yml
+
+  tasks:
+
+      # Deploys all .conf.j2 files in templates/nginx/sites
     - name: Deploy site configs
       template:
         src: '{{ item }}'
@@ -186,33 +206,35 @@
       notify:
         - reload nginx
 
-- name: Deploy resume website
+- name: Deploy webhook based websites (resume, blog)
   hosts: vps
   become: true
   tags:
-    - resume_site
+    - webhook
   
   vars_files:
     - vars/shared_vars.yml
     - vars/credentials.yml
 
+  vars:
+    wh_server_config: 'templates/webhook_server_config.ini.j2'
+  
   tasks:
-    - name: Clone site via git
-      git:
-        repo: 'https://github.com/Duckle29/startbootstrap-resume.git'
-        dest: '{{ mikkelcc_webroot }}'
+
+    - name: Ensure webroots are present
+      file:
+        group: nginx
+        owner: gunicorn
+        path: '{{ item }}'
+        state: directory
+      loop:
+        - '{{ blog_webroot }}'
+        - '{{ mikkelcc_webroot}}'
 
     - name: Install webhook server
       include_role: 
         name: webhook_server
-    
-    - name: Change ownership of resume site files
-      file:
-        group: gunicorn
-        owner: gunicorn
-        recurse: true
-        path: '{{ mikkelcc_webroot }}'
-        state: directory
+
 
 - name: Install thelounge
   hosts: vps
