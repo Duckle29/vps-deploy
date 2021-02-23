@@ -2,3 +2,5 @@
 wh_server_install_dir: '/srv/webhook_server'
 wh_server_endpoint: '/deploy'
 wh_server_config: ''
+wh_server_file_group: 'gunicorn'
+wh_server_file_owner: 'gunicorn'

@@ -218,6 +218,14 @@
 
   vars:
     wh_server_config: 'templates/webhook_server_config.ini.j2'
+    wh_server_file_group: 'nginx'
+
+  pre_tasks:
+    - name: Ensure hugo is installed to build the blog
+      package:
+        name: hugo
+        state: present
+
   
   tasks:
 
@@ -380,6 +388,8 @@
       - wolfram
       - calc
       - funreplies
+      - dice
+      - youtube
 
     sopel_ignored_nicks:
       - kthx
@@ -396,6 +406,15 @@
       [currency]
       fixer_io_key = {{ fixer_io_key }}
       auto_convert = true
+
+      [youtube]
+      api_key = {{ youtube_api_key }}
+      info_items =
+        length
+        date
+        views
+        uploader
+      playlist_watch = true
   
   handlers:
     - name: restart sopel
@@ -408,9 +427,11 @@
     - sopel.sopel
   
   post_tasks:
-    - name: Install wolfram plugin
+    - name: Install sopel plugins
       pip:
-        name: sopel-modules.wolfram
+        name:
+          - sopel-modules.wolfram
+          - sopel-modules.youtube
         state: present
         virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
         virtualenv_command: '/usr/bin/python3 -m venv'
