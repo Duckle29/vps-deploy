@@ -1,0 +1,7 @@
+---
+- name: restart webhook server
+  become: true
+  service:
+    name: 'webhook_server'
+    state: restarted
+  when: ansible_service_mgr == 'systemd'

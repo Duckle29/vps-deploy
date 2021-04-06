@@ -193,6 +193,7 @@
     - vars/port_usage.yml
     - vars/shared_vars.yml
     - vars/nextcloud/main.yml
+    - vars/credentials.yml
 
   tasks:
 
@@ -242,7 +243,6 @@
     - name: Install webhook server
       include_role: 
         name: webhook_server
-
 
 - name: Install thelounge
   hosts: vps
@@ -562,6 +562,75 @@
         hour: '*/1'
         job: /usr/bin/python3 /srv/deluge/torrentGen/octopi/check.py
 
+- name: Install BitwardenRS
+  hosts: vps
+  become: true
+  tags:
+    - bitwarden
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    - name: Install passlib
+      pip:
+        name: passlib
+
+    - name: Generate admin .htpasswd
+      community.general.htpasswd:
+        path: '{{ bitwarden_htpasswd_path }}'
+        name: '{{ bitwarden_admin_user }}'
+        password: '{{ bitwarden_admin_pass }}'
+        owner: root
+        group: www-data
+        mode: 0640
+
+    - name: Create BitwardenRS network
+      community.docker.docker_network:
+        name: bitwarden_rs
+    
+    - name: Create BitwardenRS volume
+      community.docker.docker_volume:
+        name: bitwarden_rs
+    
+    - name: Set up BitwardenRS docker image
+      community.docker.docker_container:
+        name: bitwarden_rs
+        image: bitwardenrs/server:latest
+        pull: yes
+        networks:
+          - name: bitwarden_rs
+          - name: bridge
+        
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports:
+          - '{{ portmap.bitwarden[0] }}:80'
+          - '{{ portmap.bitwarden[1] }}:3012'
+        volumes:
+          - 'bitwarden_rs:/data/'
+        env:
+            SIGNUPS_ALLOWED: 'false'
+            SHOW_PASSWORD_HINT: 'false'
+            INVITATIONS_ALLOWED: 'false'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+
+
+
 - name: Install Nextcloud (docker-apache)
   hosts: vps
   become: True
@@ -575,24 +644,24 @@
 
   tasks:
     - name: Create nextcloud network
-      community.general.docker_network:
+      community.docker.docker_network:
         name: nextcloud
 
     - name: Create nextcloud mysql volume
-      community.general.docker_volume:
+      community.docker.docker_volume:
         name: nextcloud_db
     
     - name: Create nextcloud data volume
-      community.general.docker_volume:
+      community.docker.docker_volume:
         name: nextcloud_data
 
     - name: Get data volume path
-      community.general.docker_volume_info:
+      community.docker.docker_volume_info:
         name: nextcloud_data
       register: nextcloud_data_volume_info
 
     - name: Set up mysql database for nextcloud
-      community.general.docker_container:
+      community.docker.docker_container:
         name: nextcloud-mariadb
         image: mariadb
         command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
@@ -621,7 +690,7 @@
         auto_remove: no
 
     - name: Set up redis image for nextcloud
-      community.general.docker_container:
+      community.docker.docker_container:
         name: nextcloud-redis
         image: redis:alpine
         networks:
@@ -642,7 +711,7 @@
         auto_remove: no
 
     - name: Set up nextcloud image
-      community.general.docker_container:
+      community.docker.docker_container:
         name: nextcloud
         image: nextcloud
         pull: yes
@@ -679,7 +748,7 @@
         auto_remove: no
 
     - name: Set up cron task for nextcloud
-      community.general.docker_container:
+      community.docker.docker_container:
         name: nextcloud-cron
         image: nextcloud:apache
         restart_policy: 'unless-stopped'
@@ -723,15 +792,15 @@
 
   tasks:
     - name: Create shlink network
-      community.general.docker_network:
+      community.docker.docker_network:
         name: shlink
       
     - name: Create shlink mysql volume
-      community.general.docker_volume:
+      community.docker.docker_volume:
         name: shlink_db
 
     - name: Set up mysql database for shlink
-      community.general.docker_container:
+      community.docker.docker_container:
         name: shlink-mariadb
         image: mariadb
         command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
@@ -760,7 +829,7 @@
         auto_remove: no
 
     - name: Start Shlink container
-      community.general.docker_container:
+      community.docker.docker_container:
         name: shlink
         image: shlinkio/shlink:stable
         networks:
@@ -807,11 +876,11 @@
   
   tasks:
     - name: Create bepasty volume
-      community.general.docker_volume:
+      community.docker.docker_volume:
         name: bepasty_data
     
     - name: Start bepasty container
-      community.general.docker_container:
+      community.docker.docker_container:
         name: bepasty
         image: duckle/bepasty:stable
         networks:
@@ -861,11 +930,11 @@
 
   tasks:
     - name: Create CoCalc data volume
-      community.general.docker_volume:
+      community.docker.docker_volume:
         name: cocalc_data
 
     - name: Start CoCalc container
-      community.general.docker_container:
+      community.docker.docker_container:
         name: cocalc
         image: sagemathinc/cocalc
         networks:

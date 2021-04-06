@@ -37,3 +37,7 @@ portmap:
 
   cocalc:
     - 8400
+
+  bitwarden:
+    - 8500
+    - 8512
