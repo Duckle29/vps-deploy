@@ -8,7 +8,7 @@ server {
 				access_log off;
 				log_not_found off;
 
-				error_log /var/log/nginx/unifi.mikkel.cc/inform_error.log warn;
+				error_log /var/log/nginx/unifi.{{ domain }}/inform_error.log warn;
 
 				proxy_pass http://127.0.0.1:8080/inform;
 				proxy_set_header Host $http_host;
@@ -30,8 +30,8 @@ server {
 
 	client_max_body_size 0;
 
-	error_log /var/log/nginx/unifi.mikkel.cc/error.log warn;
-    access_log /var/log/nginx/unifi.mikkel.cc/access.log;
+	error_log /var/log/nginx/unifi.{{ domain }}/error.log warn;
+    access_log /var/log/nginx/unifi.{{ domain }}/access.log;
 
 	location / {
 		proxy_pass https://127.0.0.1:{{ portmap.usdn[0] }}/;
