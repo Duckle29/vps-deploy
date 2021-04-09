@@ -83,7 +83,7 @@
     acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
 
     acme_sh_domains:
-      - domains: ["mikkel.cc", "*.mikkel.cc"]
+      - domains: ["{{ domain }}", "*.{{ domain }}"]
         debug: False 
     
     dhparams_remote_directory: '{{ cert_dir }}'
@@ -885,4 +885,4 @@
   
   roles:
     - role: jnv.unattended-upgrades
-      unattended_mail: 'mikkel@mikkel.cc'
+      unattended_mail: 'mikkel@{{ domain }}'
