@@ -628,8 +628,63 @@
         detach: yes
         auto_remove: no
 
+- name: Set up esp OTA server
+  hosts: vps
+  become: true
+  tags:
+    - esp
+    - ota
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
 
+  tasks:
+    - name: Create htpasswd directory
+      path: "/srv/esp.{{ domain }}"
+      state: directory
+      owner: nginx
+      group: adm
 
+    - name: Create htpasswd file
+      community.general.htpasswd:
+        path: "/srv/esp.{{ domain }}/.htpasswd"
+        name: "{{ item.username }}"
+        password: "{{ item.password }}"
+        owner: nginx
+        group: adm
+        mode: 0640
+      loop: {{ esp_ota_users }}
+
+    - name: Create ESP OTA server data volume
+    community.docker.docker_volume:
+        name: esp-ota_data
+    
+    - name: Create ESP OTA container
+      community.docker.docker_container:
+        name: esp_update_server
+        image: kstobbe/esp-update-server:latest
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.esp_ota[0] }}:5000'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'esp-ota_data:/esp-update-server/bin'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
 
 - name: Install Nextcloud (docker-apache)
   hosts: vps

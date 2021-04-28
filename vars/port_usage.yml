@@ -41,3 +41,6 @@ portmap:
   bitwarden:
     - 8500
     - 8512
+
+  esp_ota:
+    - 5051
