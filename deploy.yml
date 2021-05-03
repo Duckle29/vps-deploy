@@ -642,10 +642,11 @@
 
   tasks:
     - name: Create htpasswd directory
-      path: "/srv/esp.{{ domain }}"
-      state: directory
-      owner: nginx
-      group: adm
+      file:
+        path: "/srv/esp.{{ domain }}"
+        state: directory
+        owner: nginx
+        group: adm
 
     - name: Create htpasswd file
       community.general.htpasswd:
@@ -655,10 +656,10 @@
         owner: nginx
         group: adm
         mode: 0640
-      loop: {{ esp_ota_users }}
+      loop: '{{ esp_ota_users }}'
 
     - name: Create ESP OTA server data volume
-    community.docker.docker_volume:
+      community.docker.docker_volume:
         name: esp-ota_data
     
     - name: Create ESP OTA container
@@ -917,6 +918,122 @@
         detach: yes
         auto_remove: no
 
+- name: Install Gitea
+  hosts: vps
+  become: true
+  tags:
+    - git
+    - gittea
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  handlers:
+    - name: restart gitea
+      command: docker restart gitea
+
+  tasks:
+    - name: Create gitea network
+      community.docker.docker_network:
+        name: gitea
+
+    - name: Create gitea mysql volume
+      community.docker.docker_volume:
+        name: gitea_db
+    
+    - name: Create gitea data volume
+      community.docker.docker_volume:
+        name: gitea_data
+    
+    - name: Get data volume path
+      community.docker.docker_volume_info:
+        name: gitea_data
+      register: gitea_data_volume_info
+
+    - name: Set up mysql database for gitea
+      community.docker.docker_container:
+        name: gitea-mariadb
+        image: mariadb
+        networks:
+          - name: gitea
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'gitea_db:/var/lib/mysql'
+        env:
+            MYSQL_ROOT_PASSWORD: '{{ mysql_root_pass }}'
+            MYSQL_PASSWORD: '{{ gitea_database_pass }}'
+            MYSQL_DATABASE: 'gitea'
+            MYSQL_USER: 'gitea'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Set up gitea image
+      community.docker.docker_container:
+        name: gitea
+        image: gitea/gitea:1.14.1
+        pull: yes
+        networks:
+          - name: gitea
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports:
+          - '{{ portmap.gitea[0] }}:3000'
+          - '{{ portmap.gitea[1] }}:22'
+        volumes:
+          - 'gitea_data:/data'
+          - '/etc/timezone:/etc/timezone:ro'
+          - '/etc/localtime:/etc/localtime:ro'
+        env:
+            GITEA__database__DB_TYPE: mysql
+            GITEA__database__HOST: gitea-mariadb:3306
+            GITEA__database__NAME: gitea
+            GITEA__database__USER: gitea
+            GITEA__database__PASSWD: '{{ gitea_database_pass }}'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    - name: Enable GIT LFS
+      lineinfile:
+        path: '{{ gitea_data_volume_info.volume.Mountpoint }}/gitea/conf/app.ini'
+        regexp: '^LFS_START_SERVER.*=.*(?:false|true)$'
+        insertafter: '^\[server\]'
+        line: 'LFS_START_SERVER = true'
+      notify:
+        - restart gitea
+
+    - name: Set root url
+      lineinfile:
+        path: '{{ gitea_data_volume_info.volume.Mountpoint }}/gitea/conf/app.ini'
+        regexp: '^ROOT_URL.*=.*$'
+        insertafter: '^\[server\]'
+        line: 'ROOT_URL = https://git.{{ domain }}/'
+      notify:
+        - restart gitea
+
 - name: Install bepasty
   hosts: vps
   become: true
@@ -1018,6 +1135,7 @@
   become: true
   tags:
     - firewall
+    - ufw
   
   roles:
     - ufw

@@ -44,3 +44,7 @@ portmap:
 
   esp_ota:
     - 5051
+
+  gitea:
+    - 3000
+    - 222
