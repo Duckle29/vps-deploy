@@ -47,4 +47,7 @@ portmap:
 
   gitea:
     - 3000
-    - 222
+    - 3222
+
+  vernemq:
+    - 8883

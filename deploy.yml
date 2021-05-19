@@ -82,6 +82,7 @@
     acme_sh_default_extra_flags_issue: '-k 4096'
     acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
 
+    acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert"
     acme_sh_domains:
       - domains: ["mikkel.cc", "*.mikkel.cc"]
         debug: False 
@@ -348,11 +349,78 @@
       shell: "curl -fsSL https://unms.com/install > /tmp/unms_inst.sh && sudo bash /tmp/unms_inst.sh --public-https-port 443 --http-port 8081 --https-port 9443 --unattended"
       when: not unms_stat.stat.exists
 
+- name: Install sopel (libera)
+  hosts: vps
+  become: true
+  tags:
+    - irc
+    - sopel
+    - libera
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Create sopel volume
+      community.docker.docker_volume:
+        name: sopel_data
+    
+    - name: Get volume path
+      community.docker.docker_volume_info:
+        name: sopel_data
+      register: sopel_data_volume_info
+
+    - name: Set up folders
+      file:
+        path: '{{ item }}'
+        owner: '100000'
+        group: '100000'
+        state: directory
+      loop:
+        - '{{ sopel_data_volume_info.volume.Mountpoint }}'
+        - '{{ sopel_data_volume_info.volume.Mountpoint }}/log'
+        - '{{ sopel_data_volume_info.volume.Mountpoint }}/pid'
+
+
+    - name: Copy config to docker volume
+      template:
+        src: templates/sopel/default.cfg.j2
+        dest: '{{ sopel_data_volume_info.volume.Mountpoint }}/default.cfg'
+        owner: '100000'
+        group: '100000'
+
+    - name: Start sopel container
+      community.docker.docker_container:
+        name: sopel-libera
+        image: sopelirc/sopel:latest
+        networks:
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'sopel_data:/home/sopel/.sopel'
+        env:
+            EXTRA_PYPI_PACKAGES: sopel-modules.wolfram sopel-modules.youtube
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 - name: Install sopel
   hosts: vps
   become: true
   tags:
-    - sopel
+    - sopel-freenode
 
   vars_files:
     - vars/credentials.yml
@@ -1094,6 +1162,58 @@
         detach: yes
         auto_remove: no
 
+- name: Install VerneMQ MQTT broker
+  hosts: vps
+  become: true
+  tags:
+    - mqtt
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Set up VerneMQ config volume
+      community.docker.docker_volume:
+        name: duQTT-vernemq-cfg
+
+    - name: Start VerneMQ container
+      community.docker.docker_container:
+        name: duQTT-VerneMQ
+        image: vernemq/vernemq
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.vernemq[0] }}:8883'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ cert_dir }}:/etc/ssl'
+          - 'duQTT-vernemq-cfg:/etc/vernemq'
+
+        env:
+          DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
+          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT: '0.0.0.0:{{ portmap.vernemq[0] }}'
+          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__USE_IDENTITY_AS_USERNAME: 'off'
+          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__REQUIRE_CERTIFICATE: 'off'
+          DOCKER_VERNEMQ_LISTENER__SSL__CAFILE: '/etc/ssl/{{ domain }}.pem'
+          DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE: '/etc/ssl/{{ domain }}.key'
+          DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE: '/etc/ssl/{{ domain }}.cert'
+          DOCKER_VERNEMQ_PLUGINS__VMQ_ACL: 'off'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 - name: Install and set up CoCalc
   become: True
   hosts: vps
@@ -1141,6 +1261,16 @@
   tags:
     - firewall
     - ufw
+  
+  vars:
+    ufw_allowed_apps:
+      - Deluge
+      - Teamspeak 3 - Full
+      - UniFi STUN
+      - OpenSSH
+      - Nginx Full
+      - Gitea SSH
+      - VerneMQ MQTTS
   
   roles:
     - ufw
