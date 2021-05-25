@@ -381,7 +381,6 @@
       loop:
         - '{{ sopel_data_volume_info.volume.Mountpoint }}'
         - '{{ sopel_data_volume_info.volume.Mountpoint }}/log'
-        - '{{ sopel_data_volume_info.volume.Mountpoint }}/pid'
 
 
     - name: Copy config to docker volume
