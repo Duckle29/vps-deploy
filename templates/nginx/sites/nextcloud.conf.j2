@@ -10,8 +10,8 @@ server {
     client_max_body_size 0;
     proxy_request_buffering off;
 
-    error_log /var/log/nginx/nextcloud.mikkel.cc_error.log warn;
-    access_log /var/log/nginx/nextcloud.mikkel.cc_access.log;
+    error_log /var/log/nginx/nextcloud.{{ domain }}_error.log warn;
+    access_log /var/log/nginx/nextcloud.{{ domain }}_access.log;
 
     location /.well-known/carddav {
         return 301 $scheme://$host/remote.php/dav;

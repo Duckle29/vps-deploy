@@ -1,7 +1,7 @@
 # '{{ansible_managed}}'
 
-ssl_certificate {{ cert_dir }}/mikkel.cc.pem;
-ssl_certificate_key {{ cert_dir }}/mikkel.cc.key;
+ssl_certificate {{ cert_dir }}/{{ domain }}.pem;
+ssl_certificate_key {{ cert_dir }}/{{ domain }}.key;
 ssl_dhparam {{ cert_dir }}/dhparams.pem;
 
 ssl_protocols TLSv1.3 TLSv1.2;

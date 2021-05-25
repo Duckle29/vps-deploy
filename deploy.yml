@@ -84,7 +84,7 @@
 
     acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert"
     acme_sh_domains:
-      - domains: ["mikkel.cc", "*.mikkel.cc"]
+      - domains: ["{{ domain }}", "*.{{ domain }}"]
         debug: False 
     
     dhparams_remote_directory: '{{ cert_dir }}'
@@ -1282,4 +1282,4 @@
   
   roles:
     - role: jnv.unattended-upgrades
-      unattended_mail: 'mikkel@mikkel.cc'
+      unattended_mail: 'mikkel@{{ domain }}'
