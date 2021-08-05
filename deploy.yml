@@ -394,6 +394,7 @@
       community.docker.docker_container:
         name: sopel-libera
         image: sopelirc/sopel:latest
+        pull: yes
         networks:
           - name: bridge
         networks_cli_compatible: yes
