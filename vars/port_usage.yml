@@ -51,3 +51,6 @@ portmap:
 
   vernemq:
     - 8883
+
+  syncplay:
+    - 8999

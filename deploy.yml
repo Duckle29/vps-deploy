@@ -94,6 +94,26 @@
     - { role: "nickjj.acme_sh", tags: ["acme_sh"] }
     - duckle29.dhparam
 
+- name: Set hostname of the server
+  hosts: vps
+  become: true
+  tags:
+    - hostname
+  
+  vars_files:
+    - vars/shared_vars.yml
+  
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: contabo1.{{ domain }}
+    
+    - name: Set hostname in /etc/hosts
+      ansible.builtin.replace:
+        path: /etc/hosts
+        regexp: '^((?:[\d|a-fA-F|\.|:])+)(\s+[a-zA-z0-9]+\.contaboserver\.net.*)$'
+        replace: \1 contabo1.{{ domain }} contabo1
+
 - name: Ensure the required python-docker bindings are installed
   hosts: vps
   become: true
@@ -349,6 +369,63 @@
       shell: "curl -fsSL https://unms.com/install > /tmp/unms_inst.sh && sudo bash /tmp/unms_inst.sh --public-https-port 443 --http-port 8081 --https-port 9443 --unattended"
       when: not unms_stat.stat.exists
 
+- name: Install syncplay server
+  hosts: vps
+  become: true
+  tags:
+    - syncplay
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Make dir for symlinks
+      ansible.builtin.file:
+        path: '{{ cert_dir }}/{{ domain }}'
+        state: directory
+
+    - name: Make hardlinks to certs with expected names
+      ansible.builtin.file:
+        src: '{{ cert_dir }}/{{ item[0] }}'
+        dest: '{{ cert_dir }}/{{ domain }}/{{ item[1] }}'
+        state: hard
+      loop:
+        - ['{{ domain }}.cert', 'cert.pem']
+        - ['{{ domain }}.key', 'privkey.pem']
+        - ['{{ domain }}.pem', 'chain.pem']
+
+    - name: Start syncplay-server container
+      community.docker.docker_container:
+        name: syncplay
+        image: ninetaillabs/syncplay-server
+        pull: yes
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.syncplay[0] }}:{{ portmap.syncplay[0] }}'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ cert_dir }}/{{ domain }}:/certs:ro'
+        env:
+            PASSWORD: '{{ syncplay_pass }}'
+            PORT: '{{ portmap.syncplay[0] }}'
+            TLS: '/certs'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 - name: Install sopel (libera)
   hosts: vps
   become: true
@@ -416,94 +493,94 @@
         detach: yes
         auto_remove: no
 
-- name: Install sopel
-  hosts: vps
-  become: true
-  tags:
-    - sopel-freenode
+# - name: Install sopel
+#   hosts: vps
+#   become: true
+#   tags:
+#     - sopel-freenode
 
-  vars_files:
-    - vars/credentials.yml
+#   vars_files:
+#     - vars/credentials.yml
 
-  vars:
-    sopel_command_prefix: '\$'
+#   vars:
+#     sopel_command_prefix: '\$'
     
-    sopel_instance_name: dumDuck
-    sopel_nick: DumDuckBot
-    sopel_auth_user: '{{ sopel_irc_user }}'
-    sopel_auth_pass: '{{ sopel_irc_pass }}'
-    sopel_install_dir: '/srv/sopel'
+#     sopel_instance_name: dumDuck
+#     sopel_nick: DumDuckBot
+#     sopel_auth_user: '{{ sopel_irc_user }}'
+#     sopel_auth_pass: '{{ sopel_irc_pass }}'
+#     sopel_install_dir: '/srv/sopel'
 
-    sopel_channels: 
-      - '##botspam'
-      - '#reprap'
-      - '#bigdelta'
-      - '#partkeepr'
+#     sopel_channels: 
+#       - '##botspam'
+#       - '#reprap'
+#       - '#bigdelta'
+#       - '#partkeepr'
 
-    sopel_bot_owner: 'Duckle'
+#     sopel_bot_owner: 'Duckle'
 
-    sopel_enabled_plugins:
-      - help
-      - admin
-      - clock
-      - find_updates
-      - reload
-      - currency
-      - remind
-      - search
-      - version
-      - xkcd
-      - wolfram
-      - calc
-      - funreplies
-      - dice
-      - youtube
+#     sopel_enabled_plugins:
+#       - help
+#       - admin
+#       - clock
+#       - find_updates
+#       - reload
+#       - currency
+#       - remind
+#       - search
+#       - version
+#       - xkcd
+#       - wolfram
+#       - calc
+#       - funreplies
+#       - dice
+#       - youtube
 
-    sopel_ignored_nicks:
-      - kthx
-      - mcrib
-      - ghtx
-      - PartKeepr
+#     sopel_ignored_nicks:
+#       - kthx
+#       - mcrib
+#       - ghtx
+#       - PartKeepr
     
-    sopel_config_extra: |
-      [wolfram]
-      app_id = {{ wolfram_alpha_key }}
-      max_public = 3
-      units = metric
+#     sopel_config_extra: |
+#       [wolfram]
+#       app_id = {{ wolfram_alpha_key }}
+#       max_public = 3
+#       units = metric
 
-      [currency]
-      fixer_io_key = {{ fixer_io_key }}
-      auto_convert = true
+#       [currency]
+#       fixer_io_key = {{ fixer_io_key }}
+#       auto_convert = true
 
-      [youtube]
-      api_key = {{ youtube_api_key }}
-      info_items =
-        length
-        date
-        views
-        uploader
-      playlist_watch = true
+#       [youtube]
+#       api_key = {{ youtube_api_key }}
+#       info_items =
+#         length
+#         date
+#         views
+#         uploader
+#       playlist_watch = true
   
-  handlers:
-    - name: restart sopel
-      become: true
-      service:
-        name: 'sopel-{{ sopel_instance_name }}'
-        state: restarted
+#   handlers:
+#     - name: restart sopel
+#       become: true
+#       service:
+#         name: 'sopel-{{ sopel_instance_name }}'
+#         state: restarted
   
-  roles:
-    - sopel.sopel
+#   roles:
+#     - sopel.sopel
   
-  post_tasks:
-    - name: Install sopel plugins
-      pip:
-        name:
-          - sopel-modules.wolfram
-          - sopel-modules.youtube
-        state: present
-        virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
-        virtualenv_command: '/usr/bin/python3 -m venv'
-      notify: restart sopel
+#   post_tasks:
+#     - name: Install sopel plugins
+#       pip:
+#         name:
+#           - sopel-modules.wolfram
+#           - sopel-modules.youtube
+#         state: present
+#         virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
+#         virtualenv_command: '/usr/bin/python3 -m venv'
+#       notify: restart sopel
 
 - name: Set up autotorrent
   hosts: vps
@@ -1271,6 +1348,7 @@
       - Nginx Full
       - Gitea SSH
       - VerneMQ MQTTS
+      - Syncplay Server
   
   roles:
     - ufw
