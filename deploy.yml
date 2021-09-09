@@ -82,7 +82,7 @@
     acme_sh_default_extra_flags_issue: '-k 4096'
     acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
 
-    acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert"
+    acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert --ca-file {{ cert_dir }}/{{ domain }}.ca"
     acme_sh_domains:
       - domains: ["{{ domain }}", "*.{{ domain }}"]
         debug: False 
@@ -383,23 +383,27 @@
   tasks:
     - name: Make dir for symlinks
       ansible.builtin.file:
-        path: '{{ cert_dir }}/{{ domain }}'
+        path: '{{ cert_dir }}/{{ domain }}/syncplay'
         state: directory
 
     - name: Make hardlinks to certs with expected names
       ansible.builtin.file:
         src: '{{ cert_dir }}/{{ item[0] }}'
-        dest: '{{ cert_dir }}/{{ domain }}/{{ item[1] }}'
+        dest: '{{ cert_dir }}/{{ domain }}/syncplay/{{ item[1] }}'
+        owner: '800'
+        group: '800'
         state: hard
+
       loop:
         - ['{{ domain }}.cert', 'cert.pem']
         - ['{{ domain }}.key', 'privkey.pem']
-        - ['{{ domain }}.pem', 'chain.pem']
+        - ['{{ domain }}.ca', 'chain.pem']
 
     - name: Start syncplay-server container
       community.docker.docker_container:
         name: syncplay
         image: ninetaillabs/syncplay-server
+        hostname: syncplay.{{ domain }}
         pull: yes
         networks:
           - name: bridge
@@ -409,7 +413,7 @@
         network_mode: default
         restart_policy: 'unless-stopped'
         volumes:
-          - '{{ cert_dir }}/{{ domain }}:/certs:ro'
+          - '{{ cert_dir }}/{{ domain }}/syncplay:/certs:ro'
         env:
             PASSWORD: '{{ syncplay_pass }}'
             PORT: '{{ portmap.syncplay[0] }}'
