@@ -847,6 +847,10 @@
     - vars/port_usage.yml
     - vars/credentials.yml
 
+  handlers:
+    - name: restart nextcloud
+      command: docker restart nextcloud
+
   tasks:
     - name: Create nextcloud network
       community.docker.docker_network:
@@ -918,7 +922,7 @@
     - name: Set up nextcloud image
       community.docker.docker_container:
         name: nextcloud
-        image: nextcloud
+        image: nextcloud:20-apache
         pull: yes
         networks:
           - name: nextcloud
@@ -973,7 +977,7 @@
         auto_remove: no
 
     - name: Unset doubled headers
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: '{{ nextcloud_data_volume_info.volume.Mountpoint }}/.htaccess'
         regexp: '{{ item }}'
         state: 'absent'
@@ -982,6 +986,15 @@
         - '^[\t| ]*Header always set X-Frame-Options "SAMEORIGIN".*$'
         - '^[\t| ]*Header onsuccess unset X-Content-Type-Options.*$'
         - '^[\t| ]*Header always set X-Content-Type-Options "nosniff".*$'
+      notify: restart nextcloud
+    
+    - name: Set trash retention to max 30 days
+      ansible.builtin.lineinfile:
+        path: '{{ nextcloud_data_volume_info.volume.Mountpoint }}/config/trash_retention.config.php'
+        create: yes
+        line: <?php $CONFIG = array ('trashbin_retention_obligation' => 'auto, 30' );
+      notify: restart nextcloud
+
 
 - name: Install Shlink URL shortener
   hosts: vps
