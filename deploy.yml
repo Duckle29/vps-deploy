@@ -265,6 +265,49 @@
       include_role: 
         name: webhook_server
 
+- name: Deploy snuletek.org
+  hosts: vps
+  become: true
+  tags:
+    - snuletek
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+
+  tasks:    
+    - name: Get website
+      git:
+        repo: https://github.com/Duckle29/snuletek.git
+        dest: '{{ snuletekorg_webroot }}'
+        update: yes
+
+    - name: Start php-apache container
+      community.docker.docker_container:
+        name: snuletek-php-apache
+        image: php:7.4-apache
+        pull: yes
+        ports:
+          - '{{ portmap.snuletek[0] }}:80'
+        networks:
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ snuletekorg_webroot }}:/var/www/html:ro'
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 - name: Install thelounge
   hosts: vps
   become: true
@@ -496,95 +539,6 @@
         init: no
         detach: yes
         auto_remove: no
-
-# - name: Install sopel
-#   hosts: vps
-#   become: true
-#   tags:
-#     - sopel-freenode
-
-#   vars_files:
-#     - vars/credentials.yml
-
-#   vars:
-#     sopel_command_prefix: '\$'
-    
-#     sopel_instance_name: dumDuck
-#     sopel_nick: DumDuckBot
-#     sopel_auth_user: '{{ sopel_irc_user }}'
-#     sopel_auth_pass: '{{ sopel_irc_pass }}'
-#     sopel_install_dir: '/srv/sopel'
-
-#     sopel_channels: 
-#       - '##botspam'
-#       - '#reprap'
-#       - '#bigdelta'
-#       - '#partkeepr'
-
-#     sopel_bot_owner: 'Duckle'
-
-#     sopel_enabled_plugins:
-#       - help
-#       - admin
-#       - clock
-#       - find_updates
-#       - reload
-#       - currency
-#       - remind
-#       - search
-#       - version
-#       - xkcd
-#       - wolfram
-#       - calc
-#       - funreplies
-#       - dice
-#       - youtube
-
-#     sopel_ignored_nicks:
-#       - kthx
-#       - mcrib
-#       - ghtx
-#       - PartKeepr
-    
-#     sopel_config_extra: |
-#       [wolfram]
-#       app_id = {{ wolfram_alpha_key }}
-#       max_public = 3
-#       units = metric
-
-#       [currency]
-#       fixer_io_key = {{ fixer_io_key }}
-#       auto_convert = true
-
-#       [youtube]
-#       api_key = {{ youtube_api_key }}
-#       info_items =
-#         length
-#         date
-#         views
-#         uploader
-#       playlist_watch = true
-  
-#   handlers:
-#     - name: restart sopel
-#       become: true
-#       service:
-#         name: 'sopel-{{ sopel_instance_name }}'
-#         state: restarted
-  
-#   roles:
-#     - sopel.sopel
-  
-#   post_tasks:
-#     - name: Install sopel plugins
-#       pip:
-#         name:
-#           - sopel-modules.wolfram
-#           - sopel-modules.youtube
-#         state: present
-#         virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
-#         virtualenv_command: '/usr/bin/python3 -m venv'
-#       notify: restart sopel
 
 - name: Set up autotorrent
   hosts: vps
@@ -1336,12 +1290,96 @@
         detach: yes
         auto_remove: no
 
+- name: Install pomodoro MC server
+  hosts: vps
+  become: true
+  tags:
+    - minecraft
+    - pomodoro
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  handlers:
+    - name: restart mc pomodoro
+      command: docker restart mc_pomodoro
+
+  tasks:
+
+    - name: Create mc pomodoro data volume
+      community.docker.docker_volume:
+        name: mc_pomodoro_data
+    
+    - name: Get data volume path
+      community.docker.docker_volume_info:
+        name: mc_pomodoro_data
+      register: mc_pomodoro_data_volume_info
+
+    - name: Copy server config files
+      ansible.builtin.copy:
+        src: 'templates/minecraft/pomodoro/{{ item }}'
+        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/{{ item }}'
+      loop:
+        - 'eula.txt'
+        - 'ops.json'
+        - 'server.properties'
+        - 'server-icon.png'
+
+    - name: Ensure the plugin folder is present
+      file:
+        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
+        state: directory
+
+    - name: Get geyser and floodgate plugins
+      ansible.builtin.get_url:
+        url: '{{ item }}'
+        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
+      loop:
+        - 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/927/artifact/bootstrap/spigot/target/Geyser-Spigot.jar'
+        - 'https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/46/artifact/spigot/target/floodgate-spigot.jar'
+
+    - name: Set up mcpaper docker image
+      community.docker.docker_container:
+        name: mc_pomodoro
+        image: phyremaster/papermc
+        pull: no
+        networks:
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports:
+          - '{{ portmap.mc_pomodoro[0] }}:25565'
+          - '{{ portmap.mc_pomodoro[1] }}:25575'
+          - '{{ portmap.mc_pomodoro[2] }}:19132/udp'
+        volumes:
+          - 'mc_pomodoro_data:/papermc'
+        env:
+            MC_VERSION: 1.17.1
+            MC_RAM: 2G
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
 - name: Set up firewall
   hosts: vps
   become: true
   tags:
     - firewall
     - ufw
+
+  vars_files:
+    - vars/port_usage.yml
   
   vars:
     ufw_allowed_apps:
@@ -1353,6 +1391,8 @@
       - Gitea SSH
       - VerneMQ MQTTS
       - Syncplay Server
+      - Satisfactory
+      - MC pomodoro
   
   roles:
     - ufw
@@ -1366,3 +1406,93 @@
   roles:
     - role: jnv.unattended-upgrades
       unattended_mail: 'mikkel@{{ domain }}'
+
+
+# - name: Install sopel
+#   hosts: vps
+#   become: true
+#   tags:
+#     - sopel-freenode
+
+#   vars_files:
+#     - vars/credentials.yml
+
+#   vars:
+#     sopel_command_prefix: '\$'
+    
+#     sopel_instance_name: dumDuck
+#     sopel_nick: DumDuckBot
+#     sopel_auth_user: '{{ sopel_irc_user }}'
+#     sopel_auth_pass: '{{ sopel_irc_pass }}'
+#     sopel_install_dir: '/srv/sopel'
+
+#     sopel_channels: 
+#       - '##botspam'
+#       - '#reprap'
+#       - '#bigdelta'
+#       - '#partkeepr'
+
+#     sopel_bot_owner: 'Duckle'
+
+#     sopel_enabled_plugins:
+#       - help
+#       - admin
+#       - clock
+#       - find_updates
+#       - reload
+#       - currency
+#       - remind
+#       - search
+#       - version
+#       - xkcd
+#       - wolfram
+#       - calc
+#       - funreplies
+#       - dice
+#       - youtube
+
+#     sopel_ignored_nicks:
+#       - kthx
+#       - mcrib
+#       - ghtx
+#       - PartKeepr
+    
+#     sopel_config_extra: |
+#       [wolfram]
+#       app_id = {{ wolfram_alpha_key }}
+#       max_public = 3
+#       units = metric
+
+#       [currency]
+#       fixer_io_key = {{ fixer_io_key }}
+#       auto_convert = true
+
+#       [youtube]
+#       api_key = {{ youtube_api_key }}
+#       info_items =
+#         length
+#         date
+#         views
+#         uploader
+#       playlist_watch = true
+  
+#   handlers:
+#     - name: restart sopel
+#       become: true
+#       service:
+#         name: 'sopel-{{ sopel_instance_name }}'
+#         state: restarted
+  
+#   roles:
+#     - sopel.sopel
+  
+#   post_tasks:
+#     - name: Install sopel plugins
+#       pip:
+#         name:
+#           - sopel-modules.wolfram
+#           - sopel-modules.youtube
+#         state: present
+#         virtualenv: '{{ sopel_install_dir }}/venv_{{ sopel_instance_name }}'
+#         virtualenv_command: '/usr/bin/python3 -m venv'
+#       notify: restart sopel

@@ -54,3 +54,11 @@ portmap:
 
   syncplay:
     - 8999
+  
+  snuletek:
+    - 7443
+  
+  mc_pomodoro:
+    - 25565
+    - 25575
+    - 19132
