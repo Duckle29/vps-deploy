@@ -1350,13 +1350,13 @@
         url: '{{ item }}'
         dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
       loop:
-        - 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/927/artifact/bootstrap/spigot/target/Geyser-Spigot.jar'
-        - 'https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/46/artifact/spigot/target/floodgate-spigot.jar'
+        - 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/967/artifact/bootstrap/spigot/target/Geyser-Spigot.jar'
+        - 'https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/53/artifact/spigot/target/floodgate-spigot.jar'
 
     - name: Set up mcpaper docker image
       community.docker.docker_container:
         name: mc_pomodoro
-        image: phyremaster/papermc
+        image: hchasens/papermc
         pull: no
         networks:
           - name: bridge
@@ -1370,7 +1370,7 @@
         volumes:
           - 'mc_pomodoro_data:/papermc'
         env:
-            MC_VERSION: 1.17.1
+            MC_VERSION: 1.18.1
             MC_RAM: 2G
 
         container_default_behavior: 'no_defaults'
