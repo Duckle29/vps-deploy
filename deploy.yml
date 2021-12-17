@@ -1356,7 +1356,7 @@
     - name: Set up mcpaper docker image
       community.docker.docker_container:
         name: mc_pomodoro
-        image: hchasens/papermc
+        image: hchasens/papermc:1.18.1
         pull: no
         networks:
           - name: bridge
