@@ -803,7 +803,7 @@
 
   handlers:
     - name: restart nextcloud
-      command: docker restart nextcloud
+      command: sleep 120 && docker restart nextcloud
 
   tasks:
     - name: Create nextcloud network
@@ -876,7 +876,7 @@
     - name: Set up nextcloud image
       community.docker.docker_container:
         name: nextcloud
-        image: nextcloud:20-apache
+        image: nextcloud:23-apache
         pull: yes
         networks:
           - name: nextcloud
@@ -913,7 +913,10 @@
     - name: Set up cron task for nextcloud
       community.docker.docker_container:
         name: nextcloud-cron
-        image: nextcloud:apache
+        image: nextcloud:23-apache
+        networks:
+          - name: nextcloud
+        networks_cli_compatible: yes
         restart_policy: 'unless-stopped'
         volumes:
           - 'nextcloud_data:/var/www/html'
@@ -930,17 +933,17 @@
         detach: yes
         auto_remove: no
 
-    - name: Unset doubled headers
-      ansible.builtin.lineinfile:
-        path: '{{ nextcloud_data_volume_info.volume.Mountpoint }}/.htaccess'
-        regexp: '{{ item }}'
-        state: 'absent'
-      loop:
-        - '^[\t| ]*Header onsuccess unset X-Frame-Options.*$'
-        - '^[\t| ]*Header always set X-Frame-Options "SAMEORIGIN".*$'
-        - '^[\t| ]*Header onsuccess unset X-Content-Type-Options.*$'
-        - '^[\t| ]*Header always set X-Content-Type-Options "nosniff".*$'
-      notify: restart nextcloud
+    # - name: Unset doubled headers
+    #   ansible.builtin.lineinfile:
+    #     path: '{{ nextcloud_data_volume_info.volume.Mountpoint }}/.htaccess'
+    #     regexp: '{{ item }}'
+    #     state: 'absent'
+    #   loop:
+    #     - '^[\t| ]*Header onsuccess unset X-Frame-Options.*$'
+    #     - '^[\t| ]*Header always set X-Frame-Options "SAMEORIGIN".*$'
+    #     - '^[\t| ]*Header onsuccess unset X-Content-Type-Options.*$'
+    #     - '^[\t| ]*Header always set X-Content-Type-Options "nosniff".*$'
+    #   notify: restart nextcloud
     
     - name: Set trash retention to max 30 days
       ansible.builtin.lineinfile:
