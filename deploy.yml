@@ -332,7 +332,7 @@
     - name: Latest version is
       debug:
         msg: "{{ lounge_json_response.json.assets.0.browser_download_url | regex_replace('^.*thelounge_((\\d\\.*)+)_all\\.deb', '\\1') }}"
-      failed_when: lounge_json_response.json.assets.0.browser_download_url is not regex("thelounge_((\d\.*)+)_all\.deb")
+      failed_when: lounge_json_response.json.assets.0.browser_download_url is not regex("thelounge_((\d(?:\.|-)*)+)_all\.deb")
 
     - name: Get the latest thelounge .deb
       get_url: 
