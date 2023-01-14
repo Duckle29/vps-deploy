@@ -1,0 +1,37 @@
+---
+tasks:
+    - name: Create influxDB networks
+      community.docker.docker_network:
+        name: '{{ item }}'
+      loop: {{ influxdb_networks }}
+
+    - name: Create container volumes
+      community.docker.docker_volume:
+        name: '{{ item }}'
+      loop: {{ influxdb_volumes }}
+
+    - name: Set up container image
+      community.docker.docker_container:
+        name: '{{ influxdb_name }}'
+        image: '{{ influxdb_image }}'
+        pull: yes
+        networks: {{ influxdb_networks }}
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports: {{ influxdb_port_bindings }}
+        volumes: {{ influxdb_volume_maps }}
+        env: {{ influxdb_env }}
+
+        influxdb_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    

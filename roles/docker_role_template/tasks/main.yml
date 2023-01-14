@@ -1,0 +1,37 @@
+---
+tasks:
+    - name: Create container networks
+      community.docker.docker_network:
+        name: '{{ item }}'
+      loop: {{ container_networks }}
+
+    - name: Create container volumes
+      community.docker.docker_volume:
+        name: '{{ item }}'
+      loop: {{ container_volumes }}
+
+    - name: Set up container image
+      community.docker.docker_container:
+        name: '{{ container_name }}'
+        image: '{{ container_image }}'
+        pull: yes
+        networks: {{ container_networks }}
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        ports: {{ container_port_bindings }}
+        volumes: {{ container_volume_maps }}
+        env: {{ container_env }}
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+    

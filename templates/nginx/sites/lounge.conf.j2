@@ -1,7 +1,7 @@
 # '{{ansible_managed}}'
 
 server {
-	server_name lounge.{{ domain }};
+	server_name lounge.{{ domain }} lounge.snuletek.org;
 
 	listen 443 ssl http2;
 	include snippets/ssl;

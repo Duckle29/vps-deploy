@@ -1,0 +1,11 @@
+---
+container_name: default_docker_container
+container_image: default/image
+container_volumes: []
+container_volume_maps: []
+container_networks:
+  - bridge
+contaier_port_bindings: 
+  - 8080:8080
+container_env:
+  ENV_VAR: default

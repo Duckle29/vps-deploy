@@ -84,7 +84,7 @@
 
     acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert --ca-file {{ cert_dir }}/{{ domain }}.ca"
     acme_sh_domains:
-      - domains: ["{{ domain }}", "*.{{ domain }}"]
+      - domains: ["{{ domain }}", "*.{{ domain }}", "{{ shlink_domain }}", "*.{{ shlink_domain }}", "snuletek.org", "*.snuletek.org"]
         debug: False 
     
     dhparams_remote_directory: '{{ cert_dir }}'
@@ -260,6 +260,7 @@
       loop:
         - '{{ blog_webroot }}'
         - '{{ mikkelcc_webroot}}'
+        - '{{ wifir_webroot }}'
 
     - name: Install webhook server
       include_role: 
@@ -665,11 +666,12 @@
         hour: '*/1'
         job: /usr/bin/python3 /srv/deluge/torrentGen/octopi/check.py
 
-- name: Install BitwardenRS
+- name: Install VaultWarden
   hosts: vps
   become: true
   tags:
     - bitwarden
+    - vaultwarden
   
   vars_files:
     - vars/shared_vars.yml
@@ -690,18 +692,18 @@
         group: www-data
         mode: 0640
 
-    - name: Create BitwardenRS network
+    - name: Create VaultWarden network
       community.docker.docker_network:
         name: bitwarden_rs
     
-    - name: Create BitwardenRS volume
+    - name: Create VaultWarden volume
       community.docker.docker_volume:
         name: bitwarden_rs
     
-    - name: Set up BitwardenRS docker image
+    - name: Set up VaultWarden docker image
       community.docker.docker_container:
         name: bitwarden_rs
-        image: bitwardenrs/server:latest
+        image: vaultwarden/server:latest
         pull: yes
         networks:
           - name: bitwarden_rs
@@ -952,7 +954,6 @@
         line: <?php $CONFIG = array ('trashbin_retention_obligation' => 'auto, 30' );
       notify: restart nextcloud
 
-
 - name: Install Shlink URL shortener
   hosts: vps
   become: True
@@ -1016,7 +1017,7 @@
         network_mode: default
         restart_policy: 'unless-stopped'
         env:
-            SHORT_DOMAIN_HOST: 'sh.{{ domain }}'
+            SHORT_DOMAIN_HOST: '{{ shlink_domain }}'
             SHORT_DOMAIN_SCHEMA: 'https'
             GEOLITE_LICENSE_KEY: '{{ shlink_geolite_token }}'
             DB_DRIVER: 'maria'
@@ -1306,87 +1307,6 @@
         detach: yes
         auto_remove: no
 
-- name: Install pomodoro MC server
-  hosts: vps
-  become: true
-  tags:
-    - minecraft
-    - pomodoro
-  
-  vars_files:
-    - vars/shared_vars.yml
-    - vars/port_usage.yml
-    - vars/credentials.yml
-  
-  handlers:
-    - name: restart mc pomodoro
-      command: docker restart mc_pomodoro
-
-  tasks:
-
-    - name: Create mc pomodoro data volume
-      community.docker.docker_volume:
-        name: mc_pomodoro_data
-    
-    - name: Get data volume path
-      community.docker.docker_volume_info:
-        name: mc_pomodoro_data
-      register: mc_pomodoro_data_volume_info
-
-    - name: Copy server config files
-      ansible.builtin.copy:
-        src: 'templates/minecraft/pomodoro/{{ item }}'
-        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/{{ item }}'
-      loop:
-        - 'eula.txt'
-        - 'ops.json'
-        - 'server.properties'
-        - 'server-icon.png'
-
-    - name: Ensure the plugin folder is present
-      file:
-        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
-        state: directory
-
-    - name: Get geyser and floodgate plugins
-      ansible.builtin.get_url:
-        url: '{{ item }}'
-        dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
-      loop:
-        - 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/967/artifact/bootstrap/spigot/target/Geyser-Spigot.jar'
-        - 'https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/53/artifact/spigot/target/floodgate-spigot.jar'
-
-    - name: Set up mcpaper docker image
-      community.docker.docker_container:
-        name: mc_pomodoro
-        image: hchasens/papermc:1.18.1
-        pull: no
-        networks:
-          - name: bridge
-        networks_cli_compatible: yes
-        network_mode: default
-        restart_policy: 'unless-stopped'
-        ports:
-          - '{{ portmap.mc_pomodoro[0] }}:25565'
-          - '{{ portmap.mc_pomodoro[1] }}:25575'
-          - '{{ portmap.mc_pomodoro[2] }}:19132/udp'
-        volumes:
-          - 'mc_pomodoro_data:/papermc'
-        env:
-            MC_VERSION: 1.18.1
-            MC_RAM: 2G
-
-        container_default_behavior: 'no_defaults'
-        tty: no
-        read_only: no
-        privileged: no
-        paused: no
-        memory: "0"
-        interactive: no
-        init: no
-        detach: yes
-        auto_remove: no
-
 - name: Set up firewall
   hosts: vps
   become: true
@@ -1404,11 +1324,8 @@
       - UniFi STUN
       - OpenSSH
       - Nginx Full
-      - Gitea SSH
-      - VerneMQ MQTTS
-      - Syncplay Server
       - Satisfactory
-      - MC pomodoro
+      - InfluxDB
   
   roles:
     - ufw
@@ -1423,6 +1340,87 @@
     - role: jnv.unattended-upgrades
       unattended_mail: 'mikkel@{{ domain }}'
 
+
+# - name: Install pomodoro MC server
+#   hosts: vps
+#   become: true
+#   tags:
+#     - minecraft
+#     - pomodoro
+  
+#   vars_files:
+#     - vars/shared_vars.yml
+#     - vars/port_usage.yml
+#     - vars/credentials.yml
+  
+#   handlers:
+#     - name: restart mc pomodoro
+#       command: docker restart mc_pomodoro
+
+#   tasks:
+
+#     - name: Create mc pomodoro data volume
+#       community.docker.docker_volume:
+#         name: mc_pomodoro_data
+    
+#     - name: Get data volume path
+#       community.docker.docker_volume_info:
+#         name: mc_pomodoro_data
+#       register: mc_pomodoro_data_volume_info
+
+#     - name: Copy server config files
+#       ansible.builtin.copy:
+#         src: 'templates/minecraft/pomodoro/{{ item }}'
+#         dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/{{ item }}'
+#       loop:
+#         - 'eula.txt'
+#         - 'ops.json'
+#         - 'server.properties'
+#         - 'server-icon.png'
+
+#     - name: Ensure the plugin folder is present
+#       file:
+#         dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
+#         state: directory
+
+#     - name: Get geyser and floodgate plugins
+#       ansible.builtin.get_url:
+#         url: '{{ item }}'
+#         dest: '{{ mc_pomodoro_data_volume_info.volume.Mountpoint }}/plugins/'
+#       loop:
+#         - 'https://ci.opencollab.dev/job/GeyserMC/job/Geyser/job/master/967/artifact/bootstrap/spigot/target/Geyser-Spigot.jar'
+#         - 'https://ci.opencollab.dev/job/GeyserMC/job/Floodgate/job/master/53/artifact/spigot/target/floodgate-spigot.jar'
+
+#     - name: Set up mcpaper docker image
+#       community.docker.docker_container:
+#         name: mc_pomodoro
+#         image: hchasens/papermc:1.18.1
+#         pull: no
+#         networks:
+#           - name: bridge
+#         networks_cli_compatible: yes
+#         network_mode: default
+#         restart_policy: 'unless-stopped'
+#         ports:
+#           - '{{ portmap.mc_pomodoro[0] }}:25565'
+#           - '{{ portmap.mc_pomodoro[1] }}:25575'
+#           - '{{ portmap.mc_pomodoro[2] }}:19132/udp'
+#         volumes:
+#           - 'mc_pomodoro_data:/papermc'
+#         env:
+#             MC_VERSION: 1.18.1
+#             MC_RAM: 2G
+
+#         container_default_behavior: 'no_defaults'
+#         tty: no
+#         read_only: no
+#         privileged: no
+#         paused: no
+#         memory: "0"
+#         interactive: no
+#         init: no
+#         detach: yes
+#         auto_remove: no
 
 # - name: Install sopel
 #   hosts: vps

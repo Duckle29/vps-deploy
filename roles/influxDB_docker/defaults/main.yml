@@ -1,0 +1,13 @@
+---
+influxdb_name: influxdb
+influxdb_image: influxdb:latest
+influxdb_volumes: 
+  - influxdb
+influxdb_volume_maps: 
+  - '{{ influxdb_volumes[0] }}:/var/lib/influxdb2'
+influxdb_networks:
+  - bridge
+contaier_port_bindings: 
+  - 8086:8086
+influxdb_env:
+  ENV_VAR: default
