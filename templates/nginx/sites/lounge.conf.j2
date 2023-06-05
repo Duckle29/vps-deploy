@@ -23,6 +23,6 @@ server {
 	# Used with baseUrl setting in thelounge
 	location ~ "/uploads/([a-f0-9]{2})([a-f0-9]*)/(.*)" {
 		include mime.types;
-		alias /etc/thelounge/uploads/$1/$1$2;
+		alias /var/lib/docker/volumes/thelounge_data/_data/uploads/$1/$1$2;
 	}
 }
