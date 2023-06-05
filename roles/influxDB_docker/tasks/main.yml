@@ -5,7 +5,7 @@ tasks:
         name: '{{ item }}'
       loop: {{ influxdb_networks }}
 
-    - name: Create container volumes
+    - name: Create influxDB volumes
       community.docker.docker_volume:
         name: '{{ item }}'
       loop: {{ influxdb_volumes }}
