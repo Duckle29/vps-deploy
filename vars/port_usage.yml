@@ -50,6 +50,10 @@ portmap:
     - 3222
 
   vernemq:
+    - 8884
+  
+  mosquitto:
+    - 8083
     - 8883
 
   syncplay:

@@ -12,22 +12,22 @@
     - templates/*.j2
 
 - name: Reload ufw
-  ufw:
+  community.general.ufw:
     state: reloaded
 
 - name: Allow apps
-  ufw:
+  community.general.ufw:
     app: '{{ item }}'
     rule: allow
   loop: '{{ ufw_allowed_apps }}'
 
 - name: Set up default outgoing policy
-  ufw:
+  community.general.ufw:
     default: '{{ ufw_default_outgoing }}'
     direction: outgoing
 
 - name: Set up default incoming policy and enable UFW
-  ufw:
+  community.general.ufw:
     state: enabled
     default: '{{ ufw_default_incoming }}'
     direction: incoming

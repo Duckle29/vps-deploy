@@ -80,7 +80,7 @@
     acme_sh_default_dns_provider: "dns_cf"
     acme_sh_default_dns_sleep: 120
     acme_sh_default_extra_flags_issue: '-k 4096'
-    acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
+    acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx && docker restart {{ mqtt_container_name }}"
 
     acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert --ca-file {{ cert_dir }}/{{ domain }}.ca"
     acme_sh_domains:
@@ -308,63 +308,6 @@
         init: no
         detach: yes
         auto_remove: no
-
-- name: Install thelounge
-  hosts: vps
-  become: true
-  tags:
-    - thelounge
-  
-  tasks:
-    - name: Install nodejs
-      include_role:
-        name: geerlingguy.nodejs
-      vars:
-        nodejs_version: "14.x"
-        nodejs_install_npm_user: root
-
-    - name: Get the latest release info
-      uri:
-        method: GET
-        url: https://api.github.com/repos/thelounge/thelounge/releases/latest
-        return_content: true
-      register: lounge_json_response
-    
-    - name: Latest version is
-      debug:
-        msg: "{{ lounge_json_response.json.assets.0.browser_download_url | regex_replace('^.*thelounge_((\\d\\.*)+)_all\\.deb', '\\1') }}"
-      failed_when: lounge_json_response.json.assets.0.browser_download_url is not regex("thelounge_((\d(?:\.|-)*)+)_all\.deb")
-
-    - name: Get the latest thelounge .deb
-      get_url: 
-        url: '{{ lounge_json_response.json.assets.0.browser_download_url }}'
-        dest: /root/
-      register: lounge_deb_file
-    
-    - name: Install thelounge
-      apt:
-        deb: '{{ lounge_deb_file.dest }}'
-
-    - name: Remove .deb file
-      file:
-        state: absent
-        path: '{{ lounge_deb_file.dest }}'
-
-    - name: Stop thelounge before changing config
-      service:
-        name: thelounge
-        state: stopped
-
-    - name: Set up config
-      template:
-        src: templates/thelounge-config.js.j2
-        dest: /etc/thelounge/config.js
-
-    - name: Start and enable thelounge
-      service:
-        enabled: yes
-        name: thelounge
-        state: started
 
 - name: Install unifi SDN
   hosts: vps
@@ -878,7 +821,7 @@
     - name: Set up nextcloud image
       community.docker.docker_container:
         name: nextcloud
-        image: nextcloud:23-apache
+        image: nextcloud:27-apache
         pull: yes
         networks:
           - name: nextcloud
@@ -1214,58 +1157,6 @@
         detach: yes
         auto_remove: no
 
-- name: Install VerneMQ MQTT broker
-  hosts: vps
-  become: true
-  tags:
-    - mqtt
-  
-  vars_files:
-    - vars/shared_vars.yml
-    - vars/port_usage.yml
-    - vars/credentials.yml
-  
-  tasks:
-    - name: Set up VerneMQ config volume
-      community.docker.docker_volume:
-        name: duQTT-vernemq-cfg
-
-    - name: Start VerneMQ container
-      community.docker.docker_container:
-        name: duQTT-VerneMQ
-        image: vernemq/vernemq
-        networks:
-          - name: bridge
-        ports:
-          - '{{ portmap.vernemq[0] }}:8883'
-        networks_cli_compatible: yes
-        network_mode: default
-        restart_policy: 'unless-stopped'
-        volumes:
-          - '{{ cert_dir }}:/etc/ssl'
-          - 'duQTT-vernemq-cfg:/etc/vernemq'
-
-        env:
-          DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT: '0.0.0.0:{{ portmap.vernemq[0] }}'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__USE_IDENTITY_AS_USERNAME: 'off'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__REQUIRE_CERTIFICATE: 'off'
-          DOCKER_VERNEMQ_LISTENER__SSL__CAFILE: '/etc/ssl/{{ domain }}.pem'
-          DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE: '/etc/ssl/{{ domain }}.key'
-          DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE: '/etc/ssl/{{ domain }}.cert'
-          DOCKER_VERNEMQ_PLUGINS__VMQ_ACL: 'off'
-
-        container_default_behavior: 'no_defaults'
-        tty: no
-        read_only: no
-        privileged: no
-        paused: no
-        memory: "0"
-        interactive: no
-        init: no
-        detach: yes
-        auto_remove: no
-
 - name: Install and set up CoCalc
   become: True
   hosts: vps
@@ -1340,6 +1231,256 @@
     - role: jnv.unattended-upgrades
       unattended_mail: 'mikkel@{{ domain }}'
 
+- name: Install thelounge (docker)
+  hosts: vps
+  become: True
+  tags:
+    - thelounge
+    - irc
+    - testlounge
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    # todo: Remember to chmod 'o+x' all the folders leading to the upload dir
+    - name: Create thelounge network
+      community.docker.docker_network:
+        name: thelounge
+
+    - name: Create thelounge data volume
+      community.docker.docker_volume:
+        name: thelounge_data
+
+    - name: Get data volume path
+      community.docker.docker_volume_info:
+        name: thelounge_data
+      register: thelounge_data_volume_info
+    
+    - name: Set up config
+      template:
+        src: templates/thelounge-config.js.j2
+        dest: '{{ thelounge_data_volume_info.volume.Mountpoint }}/config.js'
+
+    - name: Start thelounge container
+      community.docker.docker_container:
+        name: thelounge
+        restart: yes
+        image: ghcr.io/thelounge/thelounge:latest
+        networks:
+          - name: thelounge
+          - name: bridge
+        ports: 
+          - '{{ portmap.thelounge[0] }}:9000'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'thelounge_data:/var/opt/thelounge'
+      
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+- name: Install mosquitto MQTT broker
+  hosts: vps
+  become: true
+  tags: 
+    - mqtt
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Set up Mosquitto volume 
+      community.docker.docker_volume:
+        name: duQTT_mosquitto
+    
+    - name: Get volume path
+      community.docker.docker_volume_info:
+        name: duQTT_mosquitto
+      register: mosquitto_volume_info
+    
+    - name: Make config directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config'
+        state: directory
+
+    - name: Make cert directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/certs'
+        state: directory
+
+    - name: Push custom entrypoint script
+      template:
+        src: templates/mqtt/custom_entrypoint.sh.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/custom_entrypoint.sh'
+    
+    - name: Make cert directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/custom_entrypoint.sh'
+        state: file
+        mode: u+rwx
+
+    - name: Push config file
+      template:
+        src: templates/mqtt/mosquitto.conf.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config/mosquitto.conf'
+    
+    - name: Create password file
+      template:
+        src: templates/mqtt/passwd.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config/passwd'
+
+    - name: Start Mosquitto container
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        image: eclipse-mosquitto
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.mosquitto[0] }}:8083'
+          - '{{ portmap.mosquitto[1] }}:8883'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes: 
+          - 'duQTT_mosquitto:/mosquitto'
+          - '{{ cert_dir }}:/certs:ro'
+        entrypoint: '/mosquitto/custom_entrypoint.sh'
+        command: '/usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+
+# - name: Install VerneMQ MQTT broker
+#   hosts: vps
+#   become: true
+#   tags:
+#     - mqtt
+  
+#   vars_files:
+#     - vars/shared_vars.yml
+#     - vars/port_usage.yml
+#     - vars/credentials.yml
+  
+#   tasks:
+#     - name: Set up VerneMQ config volume
+#       community.docker.docker_volume:
+#         name: duQTT-vernemq-cfg
+
+#     - name: Start VerneMQ container
+#       community.docker.docker_container:
+#         name: duQTT-VerneMQ
+#         image: vernemq/vernemq
+#         networks:
+#           - name: bridge
+#         ports:
+#           - '{{ portmap.vernemq[0] }}:8883'
+#         networks_cli_compatible: yes
+#         network_mode: default
+#         restart_policy: 'unless-stopped'
+#         volumes:
+#           - '{{ cert_dir }}:/etc/ssl'
+#           - 'duQTT-vernemq-cfg:/etc/vernemq'
+
+#         env:
+#           DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT: '0.0.0.0:{{ portmap.vernemq[0] }}'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__USE_IDENTITY_AS_USERNAME: 'off'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__REQUIRE_CERTIFICATE: 'off'
+#           DOCKER_VERNEMQ_LISTENER__SSL__CAFILE: '/etc/ssl/{{ domain }}.pem'
+#           DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE: '/etc/ssl/{{ domain }}.key'
+#           DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE: '/etc/ssl/{{ domain }}.cert'
+#           DOCKER_VERNEMQ_PLUGINS__VMQ_ACL: 'off'
+
+#         container_default_behavior: 'no_defaults'
+#         tty: no
+#         read_only: no
+#         privileged: no
+#         paused: no
+#         memory: "0"
+#         interactive: no
+#         init: no
+#         detach: yes
+#         auto_remove: no
+
+# - name: Install thelounge
+#   hosts: vps
+#   become: true
+#   tags:
+#     - thelounge
+  
+#   tasks:
+#     - name: Install nodejs
+#       include_role:
+#         name: geerlingguy.nodejs
+#       vars:
+#         nodejs_version: "14.x"
+#         nodejs_install_npm_user: root
+
+#     - name: Get the latest release info
+#       uri:
+#         method: GET
+#         url: https://api.github.com/repos/thelounge/thelounge/releases/latest
+#         return_content: true
+#       register: lounge_json_response
+    
+#     - name: Latest version is
+#       debug:
+#         msg: "{{ lounge_json_response.json.assets.0.browser_download_url | regex_replace('^.*thelounge_((\\d\\.*)+)_all\\.deb', '\\1') }}"
+#       failed_when: lounge_json_response.json.assets.0.browser_download_url is not regex("thelounge_((\d(?:\.|-)*)+)_all\.deb")
+
+#     - name: Get the latest thelounge .deb
+#       get_url: 
+#         url: '{{ lounge_json_response.json.assets.0.browser_download_url }}'
+#         dest: /root/
+#       register: lounge_deb_file
+    
+#     - name: Install thelounge
+#       apt:
+#         deb: '{{ lounge_deb_file.dest }}'
+
+#     - name: Remove .deb file
+#       file:
+#         state: absent
+#         path: '{{ lounge_deb_file.dest }}'
+
+#     - name: Stop thelounge before changing config
+#       service:
+#         name: thelounge
+#         state: stopped
+
+#     - name: Set up config
+#       template:
+#         src: templates/thelounge-config.js.j2
+#         dest: /etc/thelounge/config.js
+
+#     - name: Start and enable thelounge
+#       service:
+#         enabled: yes
+#         name: thelounge
+#         state: started
 
 # - name: Install pomodoro MC server
 #   hosts: vps
