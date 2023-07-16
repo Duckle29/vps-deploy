@@ -1,0 +1,18 @@
+# '{{ansible_managed}}'
+
+
+#persistence true
+#persistence_location /mosquitto/data/
+#log_dest file /mosquitto/log/mosquitto.log
+
+password_file /mosquitto/config/passwd
+allow_anonymous false
+
+listener 8083
+protocol websockets
+
+listener 8883
+certfile /mosquitto/certs/{{ domain }}.pem
+keyfile /mosquitto/certs/{{ domain }}.key
+dhparamfile /mosquitto/certs/dhparams.pem
+cafile /mosquitto/certs/{{ domain }}.ca

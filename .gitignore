@@ -3,3 +3,4 @@ vars/credentials.yml
 .vscode/*
 inventory.ini
 inventory.yml
+*.pyc

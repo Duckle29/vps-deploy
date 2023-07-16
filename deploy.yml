@@ -80,7 +80,7 @@
     acme_sh_default_dns_provider: "dns_cf"
     acme_sh_default_dns_sleep: 120
     acme_sh_default_extra_flags_issue: '-k 4096'
-    acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx"
+    acme_sh_default_install_cert_reloadcmd: "sudo systemctl reload nginx && docker restart {{ mqtt_container_name }}"
 
     acme_sh_default_extra_flags_install_cert: "--cert-file {{ cert_dir }}/{{ domain }}.cert --ca-file {{ cert_dir }}/{{ domain }}.ca"
     acme_sh_domains:
@@ -821,7 +821,7 @@
     - name: Set up nextcloud image
       community.docker.docker_container:
         name: nextcloud
-        image: nextcloud:23-apache
+        image: nextcloud:27-apache
         pull: yes
         networks:
           - name: nextcloud
@@ -1157,58 +1157,6 @@
         detach: yes
         auto_remove: no
 
-- name: Install VerneMQ MQTT broker
-  hosts: vps
-  become: true
-  tags:
-    - mqtt
-  
-  vars_files:
-    - vars/shared_vars.yml
-    - vars/port_usage.yml
-    - vars/credentials.yml
-  
-  tasks:
-    - name: Set up VerneMQ config volume
-      community.docker.docker_volume:
-        name: duQTT-vernemq-cfg
-
-    - name: Start VerneMQ container
-      community.docker.docker_container:
-        name: duQTT-VerneMQ
-        image: vernemq/vernemq
-        networks:
-          - name: bridge
-        ports:
-          - '{{ portmap.vernemq[0] }}:8883'
-        networks_cli_compatible: yes
-        network_mode: default
-        restart_policy: 'unless-stopped'
-        volumes:
-          - '{{ cert_dir }}:/etc/ssl'
-          - 'duQTT-vernemq-cfg:/etc/vernemq'
-
-        env:
-          DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT: '0.0.0.0:{{ portmap.vernemq[0] }}'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__USE_IDENTITY_AS_USERNAME: 'off'
-          DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__REQUIRE_CERTIFICATE: 'off'
-          DOCKER_VERNEMQ_LISTENER__SSL__CAFILE: '/etc/ssl/{{ domain }}.pem'
-          DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE: '/etc/ssl/{{ domain }}.key'
-          DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE: '/etc/ssl/{{ domain }}.cert'
-          DOCKER_VERNEMQ_PLUGINS__VMQ_ACL: 'off'
-
-        container_default_behavior: 'no_defaults'
-        tty: no
-        read_only: no
-        privileged: no
-        paused: no
-        memory: "0"
-        interactive: no
-        init: no
-        detach: yes
-        auto_remove: no
-
 - name: Install and set up CoCalc
   become: True
   hosts: vps
@@ -1297,7 +1245,7 @@
     - vars/credentials.yml
 
   tasks:
-    # Remember to chmod 'o+x' all the folders leading to the upload dir
+    # todo: Remember to chmod 'o+x' all the folders leading to the upload dir
     - name: Create thelounge network
       community.docker.docker_network:
         name: thelounge
@@ -1342,6 +1290,140 @@
         init: no
         detach: yes
         auto_remove: no
+
+- name: Install mosquitto MQTT broker
+  hosts: vps
+  become: true
+  tags: 
+    - mqtt
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Set up Mosquitto volume 
+      community.docker.docker_volume:
+        name: duQTT_mosquitto
+    
+    - name: Get volume path
+      community.docker.docker_volume_info:
+        name: duQTT_mosquitto
+      register: mosquitto_volume_info
+    
+    - name: Make config directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config'
+        state: directory
+
+    - name: Make cert directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/certs'
+        state: directory
+
+    - name: Push custom entrypoint script
+      template:
+        src: templates/mqtt/custom_entrypoint.sh.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/custom_entrypoint.sh'
+    
+    - name: Make cert directory
+      file:
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/custom_entrypoint.sh'
+        state: file
+        mode: u+rwx
+
+    - name: Push config file
+      template:
+        src: templates/mqtt/mosquitto.conf.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config/mosquitto.conf'
+    
+    - name: Create password file
+      template:
+        src: templates/mqtt/passwd.j2
+        dest: '{{ mosquitto_volume_info.volume.Mountpoint }}/config/passwd'
+
+    - name: Start Mosquitto container
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        image: eclipse-mosquitto
+        networks:
+          - name: bridge
+        ports:
+          - '{{ portmap.mosquitto[0] }}:8083'
+          - '{{ portmap.mosquitto[1] }}:8883'
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes: 
+          - 'duQTT_mosquitto:/mosquitto'
+          - '{{ cert_dir }}:/certs:ro'
+        entrypoint: '/mosquitto/custom_entrypoint.sh'
+        command: '/usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+
+# - name: Install VerneMQ MQTT broker
+#   hosts: vps
+#   become: true
+#   tags:
+#     - mqtt
+  
+#   vars_files:
+#     - vars/shared_vars.yml
+#     - vars/port_usage.yml
+#     - vars/credentials.yml
+  
+#   tasks:
+#     - name: Set up VerneMQ config volume
+#       community.docker.docker_volume:
+#         name: duQTT-vernemq-cfg
+
+#     - name: Start VerneMQ container
+#       community.docker.docker_container:
+#         name: duQTT-VerneMQ
+#         image: vernemq/vernemq
+#         networks:
+#           - name: bridge
+#         ports:
+#           - '{{ portmap.vernemq[0] }}:8883'
+#         networks_cli_compatible: yes
+#         network_mode: default
+#         restart_policy: 'unless-stopped'
+#         volumes:
+#           - '{{ cert_dir }}:/etc/ssl'
+#           - 'duQTT-vernemq-cfg:/etc/vernemq'
+
+#         env:
+#           DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT: '0.0.0.0:{{ portmap.vernemq[0] }}'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__USE_IDENTITY_AS_USERNAME: 'off'
+#           DOCKER_VERNEMQ_LISTENER__SSL__DEFAULT__REQUIRE_CERTIFICATE: 'off'
+#           DOCKER_VERNEMQ_LISTENER__SSL__CAFILE: '/etc/ssl/{{ domain }}.pem'
+#           DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE: '/etc/ssl/{{ domain }}.key'
+#           DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE: '/etc/ssl/{{ domain }}.cert'
+#           DOCKER_VERNEMQ_PLUGINS__VMQ_ACL: 'off'
+
+#         container_default_behavior: 'no_defaults'
+#         tty: no
+#         read_only: no
+#         privileged: no
+#         paused: no
+#         memory: "0"
+#         interactive: no
+#         init: no
+#         detach: yes
+#         auto_remove: no
 
 # - name: Install thelounge
 #   hosts: vps
