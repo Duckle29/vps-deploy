@@ -1,13 +1,15 @@
 ---
-- src: nickjj.acme_sh
-- src: duckle29.dhparam
-- src: nginxinc.nginx
-- src: sopel.sopel
-- src: geerlingguy.nodejs
-- src: geerlingguy.php
-- src: geerlingguy.mysql
-- src: geerlingguy.docker
-- src: aalaesar.install_nextcloud
-- src: jnv.unattended-upgrades
-- src: mrlesmithjr.ansible_bootstrap_python
-- src: dev-sec.ssh-hardening
+roles:
+- name: nickjj.acme_sh
+- name: duckle29.dhparam
+- name: nginxinc.nginx
+- name: sopel.sopel
+- name: geerlingguy.nodejs
+- name: geerlingguy.php
+- name: geerlingguy.mysql
+- name: geerlingguy.docker
+- name: aalaesar.install_nextcloud
+- name: jnv.unattended-upgrades
+
+collections:
+- name: dev-sec.ssh-hardening

@@ -1,13 +1,21 @@
 ---
-- name: Bootstrap python 3 and such
+- name: Bootstrap python 3
   hosts: vps
   become: true
   tags:
     - bootstrap
     - python 
 
-  roles:
-      - mrlesmithjr.ansible_bootstrap_python
+  tasks:
+    - name: Install python and packages
+      ansible.builtin.apt:
+        update_cache: true
+        pkg:
+          - python3-dev
+          - python3-pip
+          - python3-venv
+          - python3-setuptools
+          - python3-wheel
 
   post_tasks:
     - name: Ensure a locale exists
@@ -49,6 +57,7 @@
 
   vars:
     sshd_log_level: 'INFO'
+    
 
     
   pre_tasks:
@@ -59,7 +68,8 @@
         key: https://github.com/Duckle29.keys
 
   roles:
-    - dev-sec.ssh-hardening
+    - devsec.hardening.ssh_hardening
+
 
 - name: Install acme.sh, aquire certs, and generate dhparams
   hosts: vps
@@ -1237,7 +1247,6 @@
   tags:
     - thelounge
     - irc
-    - testlounge
 
   vars_files:
     - vars/shared_vars.yml
