@@ -1,13 +1,31 @@
 ---
 portmap:
+
+  ciao:
+    webui: 8090
+
+  immich:
+    server: 2283
+    ml: 3003
+
   thelounge:
     - 9000
 
   nextcloud:
-    - 8100
+    AIO_MGMT: 8100
+    APACHE: 11000
+    TALK: 3479
+
+  unifi:
+    - 11443 # main gui
+    - 3478  # STUN for adoption and other
+    - 8080  # Inform http
 
   unms:
     - 9443
+
+  joplin:
+    - 30027
 
   usdn:
     - 8443
@@ -69,3 +87,6 @@ portmap:
 
   influxDB:
     - 8086
+  
+  inventree:
+    - 8000

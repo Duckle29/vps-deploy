@@ -1,0 +1,21 @@
+# {{ansible_managed}}
+
+import "/etc/caddy/sites/*.Caddyfile"
+
+mikkel.cc {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+	}
+}
+
+snuletek.org {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+	}
+}
+
+sche.cc {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+	}
+}

@@ -1,15 +1,3 @@
 ---
 roles:
-- name: nickjj.acme_sh
-- name: duckle29.dhparam
-- name: nginxinc.nginx
-- name: sopel.sopel
-- name: geerlingguy.nodejs
-- name: geerlingguy.php
-- name: geerlingguy.mysql
-- name: geerlingguy.docker
-- name: aalaesar.install_nextcloud
-- name: jnv.unattended-upgrades
-
-collections:
-- name: dev-sec.ssh-hardening
+- name: haxorof.docker_ce

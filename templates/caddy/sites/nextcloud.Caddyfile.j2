@@ -1,0 +1,9 @@
+
+# {{ansible_managed}}
+
+nextcloud.mikkel.cc:443 {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+	}
+	reverse_proxy localhost:{{ portmap.nextcloud.APACHE }}
+}

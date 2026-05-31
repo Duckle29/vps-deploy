@@ -831,7 +831,7 @@
     - name: Set up nextcloud image
       community.docker.docker_container:
         name: nextcloud
-        image: nextcloud:27-apache
+        image: nextcloud:31-apache
         pull: yes
         networks:
           - name: nextcloud
