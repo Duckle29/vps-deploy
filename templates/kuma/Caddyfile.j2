@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+
+{
+	email {{ acme_email }}
+}
+
+{{ kuma_admin_domain }}{% if kuma_serve_status_domain %}, {{ kuma_status_domain }}{% endif %} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:{{ kuma_port }}
+}
