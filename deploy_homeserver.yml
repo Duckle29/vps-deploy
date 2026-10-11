@@ -651,9 +651,6 @@
         detach: yes
         auto_remove: no
 
-
-
-
 # - name: Deploy webhook based websites (resume, blog)
 #   hosts: homeserver
 #   become: true
