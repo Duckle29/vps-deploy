@@ -32,6 +32,25 @@
       changed_when: false
       failed_when: "'ok' not in python_test.stdout"
 
+- name: Proxmox guest agent
+  hosts: homeserver
+  become: true
+  tags:
+    - dependencies
+    - guest-agent
+
+  tasks:
+    # This host is a Proxmox VM. The agent lets Proxmox freeze the filesystems
+    # for consistent backups and shut the VM down cleanly. It needs `agent: 1`
+    # on the VM in Proxmox and a full stop/start of the VM to take effect.
+    # The unit is static: udev starts it once the virtio channel exists.
+    - name: Install qemu-guest-agent
+      ansible.builtin.apt:
+        name: qemu-guest-agent
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
 - name: Install and set up Docker-CE
   hosts: homeserver
   become: true
@@ -271,6 +290,10 @@
         name: nfs-common
         state: present
 
+    # The NAS is a VM on the same Proxmox host and can come up after this VM
+    # (power cut, host reboot). _netdev orders the mount after the network,
+    # the long mount timeout lets systemd keep retrying until the NAS answers,
+    # and nofail keeps a missing NAS from dropping boot into emergency mode.
     - name: Setup and mount NAS share
       ansible.posix.mount:
         src: hexos1.home:/mnt/HDDs/microservices
@@ -278,7 +301,37 @@
         boot: yes
         fstype: nfs
         state: mounted
-        opts: rw,sync,hard
+        opts: rw,sync,hard,_netdev,nofail,x-systemd.mount-timeout=600
+
+    # Docker must not start before the share is there: containers with bind
+    # mounts under /mnt/hexos would otherwise fail or, for plain host-path
+    # binds, start on an empty directory on the local disk.
+    - name: Create the Docker drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Make Docker wait for the NAS share
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker.service.d/10-wait-for-nfs.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_homeserver.yml)
+          [Unit]
+          RequiresMountsFor=/mnt/hexos
+      register: docker_nfs_dropin
+
+    # Only reloads unit files. It does not restart Docker (and its containers);
+    # the drop-in takes effect the next time Docker starts.
+    - name: Reload systemd units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: docker_nfs_dropin is changed
 
 - name: Install Nextcloud AiO
   hosts: homeserver
