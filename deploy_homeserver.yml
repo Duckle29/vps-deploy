@@ -372,7 +372,7 @@
     - name: Start thelounge container
       community.docker.docker_container:
         name: thelounge
-        image: ghcr.io/thelounge/thelounge:latest
+        image: ghcr.io/thelounge/thelounge:4.5.2
         ports: 
           - '{{ portmap.thelounge[0] }}:9000'
         network_mode: bridge
