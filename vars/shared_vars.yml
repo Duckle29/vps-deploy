@@ -9,5 +9,8 @@ shlink_domain: 'sche.cc'
 wifir_webroot: '/srv/wifir.mikkel.cc'
 mqtt_container_name: 'duQTT-Mosquitto'
 caddy_version: 'v2.11.2'
+# v0.2.3 rejects the newer Cloudflare API token format (cfut_..., 53 chars) with
+# "API token appears invalid"; v0.2.4 accepts it.
+caddy_cloudflare_plugin_version: 'v0.2.4'
 nfs_server: 'hexos1.home'
 nfs_share: '/mnt/HDDs/microservices'

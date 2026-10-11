@@ -60,6 +60,13 @@
     - vars/credentials.yml
 
   handlers:
+    # Replacing the binary needs a restart; a reload keeps the running one.
+    # Defined first so it runs before the reload handler.
+    - name: Restart caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
     - name: Reload caddy
       ansible.builtin.service:
         name: caddy
@@ -123,27 +130,44 @@
       ansible.builtin.set_fact:
         current_caddy_version: "{{ caddy_version_output.stdout | split | first }}"
 
+    # The binary is built from Caddy plus the Cloudflare DNS plugin, so a plugin
+    # version change must trigger a rebuild too, not only a Caddy version change.
+    # The build id of what is installed is kept in a small marker file.
+    - name: Read the installed Caddy build id
+      ansible.builtin.slurp:
+        src: /usr/local/share/caddy-build-id
+      register: caddy_build_marker
+      failed_when: false
+
+    - name: Decide whether Caddy needs to be (re)built
+      ansible.builtin.set_fact:
+        caddy_build_id: "{{ caddy_version }}+caddy-dns-cloudflare-{{ caddy_cloudflare_plugin_version }}"
+        caddy_needs_build: >-
+          {{ current_caddy_version is ansible.builtin.version(caddy_version, '!=')
+             or ((caddy_build_marker.content | default('') | b64decode | trim)
+                 != (caddy_version ~ '+caddy-dns-cloudflare-' ~ caddy_cloudflare_plugin_version)) }}
+
     - ansible.builtin.debug:
-        msg: "Current Caddy version: {{ caddy_version_output.stdout }} building requested new version {{ caddy_version }}"
-      when: current_caddy_version is ansible.builtin.version(caddy_version, '!=')
-    
+        msg: "Current Caddy: {{ caddy_version_output.stdout }}; building {{ caddy_build_id }}"
+      when: caddy_needs_build | bool
+
     - ansible.builtin.debug:
-        msg: "Current Caddy version already correct: {{ caddy_version_output.stdout }} "
-      when: current_caddy_version is ansible.builtin.version(caddy_version, '==')
+        msg: "Caddy build already correct: {{ caddy_build_id }}"
+      when: not (caddy_needs_build | bool)
 
     - name: Make temp build directory
       ansible.builtin.tempfile:
         state: directory
         suffix: build
       register: build_dir
-      when: current_caddy_version is ansible.builtin.version(caddy_version, '!=')
+      when: caddy_needs_build | bool
 
     - name: Build caddy with Cloudflare DNS plugin
-      ansible.builtin.shell: 
+      ansible.builtin.shell:
         chdir: "{{ build_dir.path }}"
-        cmd: xcaddy build --with github.com/caddy-dns/cloudflare@v0.2.3
-      when: current_caddy_version is ansible.builtin.version(caddy_version, '!=')
-    
+        cmd: "xcaddy build {{ caddy_version }} --with github.com/caddy-dns/cloudflare@{{ caddy_cloudflare_plugin_version }}"
+      when: caddy_needs_build | bool
+
     - name: DPKG divert for custom caddy build
       community.general.dpkg_divert:
         path: /usr/bin/caddy
@@ -158,7 +182,17 @@
         src: "{{ build_dir.path }}/caddy"
         dest: /usr/bin/caddy.custom
       when: build_dir.path is defined
-    
+      notify: Restart caddy
+
+    - name: Record the installed Caddy build id
+      ansible.builtin.copy:
+        content: "{{ caddy_build_id }}\n"
+        dest: /usr/local/share/caddy-build-id
+        owner: root
+        group: root
+        mode: '0644'
+      when: build_dir.path is defined
+
     - name: Remove build tempdir
       ansible.builtin.file:
         path: "{{ build_dir.path }}"
@@ -175,7 +209,7 @@
       loop:
         - ["/usr/bin/caddy.default", 10]
         - ["/usr/bin/caddy.custom", 50]
-      when: current_caddy_version is ansible.builtin.version(caddy_version, '!=')
+      when: caddy_needs_build | bool
 
     - name: Enable and start Caddy service
       ansible.builtin.service:
