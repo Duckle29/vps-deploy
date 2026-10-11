@@ -561,8 +561,8 @@
     
     - name: Transfer .env config
       ansible.builtin.template:
-        src: templates/immich/.env.j2
-        dest: /opt/immich_compose/.env
+        src: "templates/immich/.env.j2"
+        dest: "/opt/immich_compose/.env"
 
     - name: Get immich docker compose file
       ansible.builtin.get_url:
