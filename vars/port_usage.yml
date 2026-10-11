@@ -4,6 +4,15 @@ portmap:
   ciao:
     webui: 8090
 
+  # Pelican (pelican.dev) is an open source game server management panel
+  # (successor to Pterodactyl). The panel gives a web UI, users and per-server
+  # resource limits; its "wings" daemon runs each game server as a Docker
+  # container and serves SFTP. Not deployed, ports are reserved for later.
+  pelican:
+    panel: 8085
+    wings: 4433
+    sftp: 2022
+
   immich:
     server: 2283
     ml: 3003
