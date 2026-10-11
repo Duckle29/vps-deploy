@@ -230,6 +230,47 @@
         - ["/usr/bin/caddy.custom", 50]
       when: caddy_needs_build | bool
 
+    # The Cloudflare token (DNS-01 challenge) lives in a root-only environment
+    # file that systemd loads into the service, and the Caddyfiles refer to it
+    # as {env.CLOUDFLARE_API_TOKEN}. It never appears in a (world-readable)
+    # Caddyfile, and rotating it is "edit credentials.yml, run --tags caddy".
+    - name: Store the Cloudflare API token for Caddy (root-only)
+      ansible.builtin.copy:
+        dest: /etc/caddy/caddy.env
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          CLOUDFLARE_API_TOKEN={{ credentials.caddy.cloudflare_zone_api_token }}
+      no_log: true
+      notify: Restart caddy
+
+    - name: Create the Caddy service drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/caddy.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Load the Caddy environment file in the service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/caddy.service.d/10-cloudflare-env.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_homeserver.yml)
+          [Service]
+          EnvironmentFile=/etc/caddy/caddy.env
+      register: caddy_env_dropin
+      notify: Restart caddy
+
+    - name: Reload systemd units for the Caddy drop-in
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: caddy_env_dropin is changed
+
     - name: Enable and start Caddy service
       ansible.builtin.service:
         name: caddy

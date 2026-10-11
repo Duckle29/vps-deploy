@@ -4,18 +4,18 @@ import "/etc/caddy/sites/*.Caddyfile"
 
 mikkel.cc {
 	tls mikkel@mikkel.cc {
-		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
 }
 
 snuletek.org {
 	tls mikkel@mikkel.cc {
-		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
 }
 
 sche.cc {
 	tls mikkel@mikkel.cc {
-		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
 }

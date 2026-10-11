@@ -2,7 +2,7 @@
 
 joplin.mikkel.cc {
 	tls mikkel@mikkel.cc {
-		dns cloudflare {{ credentials.caddy.cloudflare_zone_api_token }}
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
     reverse_proxy http://192.168.6.220:{{portmap.joplin[0]}}
 }
