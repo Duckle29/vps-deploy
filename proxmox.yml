@@ -2,8 +2,8 @@
 #
 # So far this only covers the off-site NAS copy (borg to the Hetzner Storage
 # Box). Still configured by hand and to be codified here: PBS CT 105, the
-# nightly-vms job and vzdump hook, pve-host-backup, borg-pbs-offsite, the
-# /mnt/nas NFS automounts and the Kuma env files in /etc/default.
+# nightly-vms job and vzdump hook, pve-host-backup, borg-pbs-offsite and the
+# Kuma env files in /etc/default.
 #
 # Run (root login over the gpg-agent key, "| cat" because ansible refuses
 # non-blocking stdout):
@@ -17,7 +17,41 @@
   tags:
     - borg
 
+  vars:
+    nas_host: 192.168.6.220
+    nas_clone_datasets: [microservices, mikkel, haosBackups]
+
   tasks:
+    # The TrueNAS cron job "snapshot-clone" (03:15) clones the newest snapshot of
+    # each dataset to HDDs/offsite-clones/<ds>, shared read-only to this host.
+    - name: Create the NAS mount points
+      ansible.builtin.file:
+        path: "/mnt/nas/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ nas_clone_datasets }}"
+
+    - name: Mount the NAS snapshot clones on demand
+      ansible.builtin.blockinfile:
+        path: /etc/fstab
+        marker: "# borg-nas-offsite ({mark})"
+        marker_begin: begin
+        marker_end: end
+        block: |
+          {% for ds in nas_clone_datasets %}
+          {{ nas_host }}:/mnt/HDDs/offsite-clones/{{ ds }} /mnt/nas/{{ ds }} nfs ro,nfsvers=4,soft,timeo=150,retrans=3,_netdev,nofail,noauto,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.mount-timeout=60 0 0
+          {% endfor %}
+      register: nas_fstab
+
+    - name: Reload systemd and restart the NAS automounts
+      ansible.builtin.shell: |
+        systemctl daemon-reload
+        for ds in {{ nas_clone_datasets | join(' ') }}; do
+          systemctl stop mnt-nas-$ds.mount 2>/dev/null
+          systemctl restart mnt-nas-$ds.automount
+        done
+      when: nas_fstab.changed
+
     # /etc/default/borg-nas-offsite (KUMA_PUSH_URL, UPLOAD_RATE_KIB), the ssh key
     # and the borg passphrase file are secrets and stay on the host.
     - name: Install the NAS off-site borg script

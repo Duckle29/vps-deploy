@@ -25,15 +25,10 @@ overall=0
 summary=()
 for ds in "${DATASETS[@]}"; do
   base="/mnt/nas/$ds"
-  src="$base"; kind="live"
-  # newest ZFS snapshot = consistent point in time; fall back to live data.
-  # Over NFS the snapshot can show up as an empty directory (the export does
-  # not cross into the snapshot mount), so only use it when it has content.
-  if [ -d "$base/.zfs/snapshot" ]; then
-    latest="$(ls -1 "$base/.zfs/snapshot" 2>/dev/null | sort | tail -1)"
-    if [ -n "$latest" ] && [ -n "$(ls -A "$base/.zfs/snapshot/$latest" 2>/dev/null)" ]; then
-      src="$base/.zfs/snapshot/$latest"; kind="snap:$latest"; fi
-  fi
+  # TrueNAS clones the newest auto-* snapshot of each dataset into
+  # HDDs/offsite-clones/<ds> at 03:15 and shares that (a snapshot itself is not
+  # readable over NFS), so this is a consistent point in time.
+  src="$base"; kind="clone"
   if [ -z "$(ls -A "$src" 2>/dev/null)" ]; then
     echo "!! $ds: source empty or unreachable ($src), skipping"
     summary+=("$ds: UNREACHABLE"); [ "$overall" -lt 2 ] && overall=2
@@ -52,12 +47,7 @@ for ds in "${DATASETS[@]}"; do
       "$REPO::$ds-{utcnow:%Y-%m-%dT%H:%M:%S}" . )
   rc=$?
   case "$rc" in
-    0) if [ "$kind" = live ]; then
-         # no snapshot readable: the archive is not a consistent point in time
-         summary+=("$ds: WARNING live data, no snapshot"); [ "$overall" -lt 1 ] && overall=1
-       else
-         summary+=("$ds: ok ($kind)")
-       fi ;;
+    0) summary+=("$ds: ok ($kind)") ;;
     1) summary+=("$ds: WARNING rc=1 ($kind)"); [ "$overall" -lt 1 ] && overall=1 ;;
     *) summary+=("$ds: FAILED rc=$rc"); overall=2 ;;
   esac
