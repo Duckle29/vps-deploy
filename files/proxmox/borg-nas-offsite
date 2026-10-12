@@ -52,8 +52,13 @@ for ds in "${DATASETS[@]}"; do
       "$REPO::$ds-{utcnow:%Y-%m-%dT%H:%M:%S}" . )
   rc=$?
   case "$rc" in
-    0) summary+=("$ds: ok ($kind)") ;;
-    1) summary+=("$ds: warning ($kind)"); [ "$overall" -lt 1 ] && overall=1 ;;
+    0) if [ "$kind" = live ]; then
+         # no snapshot readable: the archive is not a consistent point in time
+         summary+=("$ds: WARNING live data, no snapshot"); [ "$overall" -lt 1 ] && overall=1
+       else
+         summary+=("$ds: ok ($kind)")
+       fi ;;
+    1) summary+=("$ds: WARNING rc=1 ($kind)"); [ "$overall" -lt 1 ] && overall=1 ;;
     *) summary+=("$ds: FAILED rc=$rc"); overall=2 ;;
   esac
 done
@@ -61,8 +66,4 @@ done
 msg="$(IFS='; '; echo "${summary[*]}")"
 echo "== summary: $msg"
 if [ "$overall" -le 1 ]; then push up "$msg"; else push down "$msg"; fi
-# A borg warning (rc 1, e.g. a file changed while it was read from live data)
-# still produced a good archive: it shows in the heartbeat message but must not
-# mark the unit failed.
-[ "$overall" -le 1 ] && exit 0
 exit "$overall"
