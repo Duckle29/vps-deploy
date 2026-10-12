@@ -1,9 +1,13 @@
-# The Proxmox VE hypervisor (proxmox0, 192.168.6.2).
+# The Proxmox VE hypervisor (proxmox0, 192.168.6.2): the off-site NAS copy
+# (borg to the Hetzner Storage Box), the PBS datastore copy, the host-config
+# backup to PBS, the vzdump job and its Kuma heartbeats.
 #
-# So far this only covers the off-site NAS copy (borg to the Hetzner Storage
-# Box). Still configured by hand and to be codified here: PBS CT 105, the
-# nightly-vms job and vzdump hook, pve-host-backup, borg-pbs-offsite and the
-# Kuma env files in /etc/default.
+# NOT managed here (done by hand, see the notes in memory/the plan file):
+#   - the PBS container CT 105 (unprivileged Debian 13, needs features nesting=1,
+#     startup order=3, mp0 /rpool/pbs -> /datastore) and the PBS install itself
+#   - the pbs-main storage entry (holds the API token secret) and VM startup order
+#   - secrets on the host: /root/.config/borg/*.pass, /root/.ssh/borg_*_ed25519
+#     (the sub-account keys, restricted to append-only on the Storage Box)
 #
 # Run (root login over the gpg-agent key, "| cat" because ansible refuses
 # non-blocking stdout):
@@ -17,9 +21,31 @@
   tags:
     - borg
 
+  vars_files:
+    - vars/credentials.yml
+
   vars:
     nas_host: 192.168.6.220
     nas_clone_datasets: [microservices, mikkel, haosBackups]
+    host_scripts:
+      - borg-nas-offsite
+      - borg-pbs-offsite
+      - pve-host-backup
+      - vzdump-kuma-hook
+    host_units:
+      - borg-nas-offsite.service
+      - borg-nas-offsite.timer
+      - borg-pbs-offsite.service
+      - borg-pbs-offsite.timer
+      - pve-host-backup.service
+      - pve-host-backup.timer
+    timers: [borg-nas-offsite, borg-pbs-offsite, pve-host-backup]
+    # /etc/default/<name> -> Uptime Kuma push monitor (external Kuma)
+    kuma_env:
+      pve-host-backup: "{{ credentials.kuma.heartbeat.host_config }}"
+      vzdump-kuma: "{{ credentials.kuma.heartbeat.pbs_vms }}"
+      borg-pbs-offsite: "{{ credentials.kuma.heartbeat.borg_pbs }}"
+      borg-nas-offsite: "{{ credentials.kuma.heartbeat.borg_nas }}"
 
   tasks:
     # The TrueNAS cron job "snapshot-clone" (03:15) clones the newest snapshot of
@@ -52,60 +78,68 @@
         done
       when: nas_fstab.changed
 
-    # /etc/default/borg-nas-offsite (KUMA_PUSH_URL, UPLOAD_RATE_KIB), the ssh key
-    # and the borg passphrase file are secrets and stay on the host.
-    - name: Install the NAS off-site borg script
+    - name: Install the backup scripts
       ansible.builtin.copy:
-        src: files/proxmox/borg-nas-offsite
-        dest: /usr/local/sbin/borg-nas-offsite
+        src: "files/proxmox/{{ item }}"
+        dest: "/usr/local/sbin/{{ item }}"
         owner: root
         group: root
         mode: '0755'
+      loop: "{{ host_scripts }}"
 
-    - name: Install the NAS off-site service unit
+    - name: Install the systemd units
       ansible.builtin.copy:
-        dest: /etc/systemd/system/borg-nas-offsite.service
+        src: "files/proxmox/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
         owner: root
         group: root
         mode: '0644'
-        content: |
-          [Unit]
-          Description=Off-site copy of the NAS datasets to the Hetzner Storage Box (borg)
-          Wants=network-online.target
-          After=network-online.target
-
-          [Service]
-          Type=oneshot
-          ExecStart=/usr/local/sbin/borg-nas-offsite
-          TimeoutStartSec=infinity
-          Nice=10
-          IOSchedulingClass=idle
+      loop: "{{ host_units }}"
       notify: Reload systemd
 
-    - name: Install the NAS off-site timer
+    # Quoted because the push URLs contain & when they carry query parameters.
+    - name: Write the Kuma push URLs
       ansible.builtin.copy:
-        dest: /etc/systemd/system/borg-nas-offsite.timer
+        dest: "/etc/default/{{ item.key }}"
         owner: root
         group: root
-        mode: '0644'
-        content: |
-          [Unit]
-          Description=Nightly off-site copy of the NAS datasets
+        mode: '0600'
+        content: "KUMA_PUSH_URL='{{ item.value }}'\n"
+      loop: "{{ kuma_env | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      diff: false
+      no_log: true
 
-          [Timer]
-          OnCalendar=*-*-* 03:30:00
-          Persistent=true
+    - name: Report vzdump results to Kuma
+      ansible.builtin.lineinfile:
+        path: /etc/vzdump.conf
+        regexp: '^script:'
+        line: 'script: /usr/local/sbin/vzdump-kuma-hook'
 
-          [Install]
-          WantedBy=timers.target
-      notify: Reload systemd
+    - name: Look for the nightly VM backup job
+      ansible.builtin.command: pvesh get /cluster/backup/nightly-vms --output-format json
+      register: nightly_job
+      changed_when: false
+      failed_when: false
+      check_mode: false
 
-    - name: Enable and start the NAS off-site timer
+    # Created once; an existing job is left alone (edit it in the PVE UI or with
+    # pvesh set, then keep these values in sync).
+    - name: Create the nightly VM backup job
+      ansible.builtin.command: >-
+        pvesh create /cluster/backup --id nightly-vms --schedule 01:30
+        --storage pbs-main --mode snapshot --vmid 101,103,105
+        --prune-backups keep-all=1 --notes-template '{{ '{{guestname}}' }}' --enabled 1
+      when: nightly_job.rc != 0
+
+    - name: Enable and start the timers
       ansible.builtin.systemd_service:
-        name: borg-nas-offsite.timer
+        name: "{{ item }}.timer"
         enabled: true
         state: started
         daemon_reload: true
+      loop: "{{ timers }}"
 
   handlers:
     - name: Reload systemd

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# vzdump hook script: vzdump calls this with the phase as $1 and VMID etc. in
+# the environment. It never fails the backup (always exits 0).
+phase="${1:-}"
+ENV_FILE=/etc/default/vzdump-kuma
+# shellcheck disable=SC1090
+[ -r "$ENV_FILE" ] && . "$ENV_FILE"
+[ -n "${KUMA_PUSH_URL:-}" ] || exit 0
+
+base="${KUMA_PUSH_URL%%\?*}"
+flag=/run/vzdump-kuma.failed
+push() {
+  curl -fsS -m 10 --get --data-urlencode "status=$1" --data-urlencode "msg=$2" "$base" >/dev/null 2>&1 || true
+}
+
+case "$phase" in
+  job-start)    rm -f "$flag" ;;
+  backup-abort) echo "${VMID:-?}" >> "$flag" ;;
+  job-end)
+    if [ -s "$flag" ]; then
+      push down "backup failed for: $(tr '\n' ' ' < "$flag")"
+    else
+      push up "OK"
+    fi ;;
+  job-abort)    push down "backup job aborted" ;;
+esac
+exit 0
