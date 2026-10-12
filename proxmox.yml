@@ -54,7 +54,6 @@
       ansible.builtin.file:
         path: "/mnt/nas/{{ item }}"
         state: directory
-        mode: '0755'
       loop: "{{ nas_clone_datasets }}"
 
     - name: Mount the NAS snapshot clones on demand
