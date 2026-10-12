@@ -1,0 +1,79 @@
+# The Proxmox VE hypervisor (proxmox0, 192.168.6.2).
+#
+# So far this only covers the off-site NAS copy (borg to the Hetzner Storage
+# Box). Still configured by hand and to be codified here: PBS CT 105, the
+# nightly-vms job and vzdump hook, pve-host-backup, borg-pbs-offsite, the
+# /mnt/nas NFS automounts and the Kuma env files in /etc/default.
+#
+# Run (root login over the gpg-agent key, "| cat" because ansible refuses
+# non-blocking stdout):
+#   export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh
+#   ansible-playbook proxmox.yml --check --diff | cat
+#   ansible-playbook proxmox.yml | cat
+
+- name: Configure the Proxmox host
+  hosts: proxmox
+  become: false
+  tags:
+    - borg
+
+  tasks:
+    # /etc/default/borg-nas-offsite (KUMA_PUSH_URL, UPLOAD_RATE_KIB), the ssh key
+    # and the borg passphrase file are secrets and stay on the host.
+    - name: Install the NAS off-site borg script
+      ansible.builtin.copy:
+        src: files/proxmox/borg-nas-offsite
+        dest: /usr/local/sbin/borg-nas-offsite
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install the NAS off-site service unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/borg-nas-offsite.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Off-site copy of the NAS datasets to the Hetzner Storage Box (borg)
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/borg-nas-offsite
+          TimeoutStartSec=infinity
+          Nice=10
+          IOSchedulingClass=idle
+      notify: Reload systemd
+
+    - name: Install the NAS off-site timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/borg-nas-offsite.timer
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Nightly off-site copy of the NAS datasets
+
+          [Timer]
+          OnCalendar=*-*-* 03:30:00
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      notify: Reload systemd
+
+    - name: Enable and start the NAS off-site timer
+      ansible.builtin.systemd_service:
+        name: borg-nas-offsite.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true
