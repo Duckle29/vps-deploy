@@ -65,5 +65,5 @@ done
 
 msg="$(IFS='; '; echo "${summary[*]}")"
 echo "== summary: $msg"
-if [ "$overall" -le 1 ]; then push up "$msg"; else push down "$msg"; fi
+if [ "$overall" -eq 0 ]; then push up "$msg"; else push down "$msg"; fi
 exit "$overall"
