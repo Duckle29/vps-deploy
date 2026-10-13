@@ -79,7 +79,9 @@
 #   - Periodic snapshot tasks (Data Protection), what the cron clones: one per
 #     dataset HDDs/{microservices,mikkel,haosBackups,HAOS}, not recursive, daily
 #     at 00:00, naming schema auto-%Y-%m-%d_%H-%M. So the off-site copy is the
-#     NAS as of midnight (snapshot 00:00, clone 03:15, borg 03:30). Retention
+#     NAS as of midnight (snapshot 00:00, clone 03:15, borg 03:30). HDDs/HAOS is
+#     empty (meant for 3D print videos, never set up) and deliberately has no
+#     clone or borg job; add it to nas_clone_datasets and the cron if it fills. Retention
 #     is 1 week. A clone pins its origin snapshot, so the one in use cannot be
 #     pruned by that expiry while it is cloned; the cron re-clones nightly
 #   - rw NFS share "Bulk storage for microservices server" (/mnt/HDDs/microservices,
