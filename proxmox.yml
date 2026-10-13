@@ -13,8 +13,12 @@
 #
 # Proxmox host
 #   - PBS container CT 105 itself (unprivileged Debian 13, 192.168.6.205, 2
-#     cores/2 GiB, mp0 /rpool/pbs -> /datastore, ZFS dataset rpool/pbs) and the
-#     PBS 4.x install inside it, from the Proxmox repo
+#     cores/2 GiB, mp0 /rpool/pbs -> /datastore, ZFS dataset rpool/pbs). The PBS 4
+#     install inside it is files/proxmox/pbs-setup.sh (idempotent, run inside the
+#     CT: pct push 105 files/proxmox/pbs-setup.sh /root/pbs-setup.sh;
+#     pct exec 105 -- bash /root/pbs-setup.sh). It writes the admin password to
+#     /root/pbs-admin.pw and the pve@pbs!pvesm token to /root/pvesm.token inside
+#     the CT (the token goes into the pbs-main storage entry on the host)
 #   - storage.cfg: pbs-main (datastore "main", user pve@pbs!pvesm, the token
 #     secret lives only on the host), local, local-zfs; hexos-share (CIFS, empty,
 #     obsolete, remove with pvesm remove)
