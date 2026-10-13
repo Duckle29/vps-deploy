@@ -1,19 +1,76 @@
-# The Proxmox VE hypervisor (proxmox0, 192.168.6.2): the off-site NAS copy
-# (borg to the Hetzner Storage Box), the PBS datastore copy, the host-config
-# backup to PBS, the vzdump job and its Kuma heartbeats.
+# The Proxmox VE hypervisor (proxmox0, 192.168.6.2).
 #
-# NOT managed here (done by hand, see the notes in memory/the plan file):
-#   - the PBS container CT 105 (unprivileged Debian 13, needs features nesting=1,
-#     startup order=3, mp0 /rpool/pbs -> /datastore) and the PBS install itself
-#   - the pbs-main storage entry (holds the API token secret) and VM startup order
+# Managed by this play:
+#   - the off-site NAS copy (borg to the Hetzner Storage Box) and the PBS
+#     datastore copy, the host-config backup to PBS, the vzdump job and the
+#     Uptime Kuma heartbeats for all of them
+#   - the NFS automounts of the TrueNAS snapshot clones under /mnt/nas
+#   - guest settings (guest_settings): VM/CT startup order, onboot, guest agent,
+#     CT 105 nesting and its /rpool/pbs mountpoint
+#   - a check that the pbs-main storage entry exists (the play fails if not)
+#
+# NOT managed here (done by hand; this header is the record):
+#
+# Proxmox host
+#   - PBS container CT 105 itself (unprivileged Debian 13, 192.168.6.205, 2
+#     cores/2 GiB, mp0 /rpool/pbs -> /datastore, ZFS dataset rpool/pbs) and the
+#     PBS 4.x install inside it, from the Proxmox repo
+#   - storage.cfg: pbs-main (datastore "main", user pve@pbs!pvesm, the token
+#     secret lives only on the host), local, local-zfs; hexos-share (CIFS, empty,
+#     obsolete, remove with pvesm remove)
 #   - secrets on the host: /root/.config/borg/*.pass, /root/.ssh/borg_*_ed25519
-#     (the sub-account keys, restricted to append-only on the Storage Box)
+#     (the Storage Box sub-account keys, restricted to append-only there)
+#   - ZFS snapshots rpool@pre-pve84-upgrade (rollback point; destroy once the
+#     8.4 upgrade has proven stable)
 #
-# Run (root login over the gpg-agent key, "| cat" because ansible refuses
-# non-blocking stdout):
+# HexOS VM 103 (the NAS; TrueNAS-based, 192.168.6.220)
+#   - q35 + OVMF, 8 cores, 10 GiB, 64 GiB system disk on local-zfs (scsi0)
+#   - the three 4 TB Seagate IronWolf drives (ST4000VN006, serials WW6567VB,
+#     WW6566MD, WW6566YR) are passed through as raw /dev/disk/by-id block devices
+#     (scsi1-3, backup=0 so vzdump skips them), NOT PCI passthrough. They hold the
+#     pool "HDDs"; the system disk is the only part of 103 that PBS backs up
+#   - the NAS data is protected only by the off-site borg job below; the VM
+#     backup does not contain it
+#   - HexOS itself was installed from the ISO by hand and configured in its UI
+#     (pool HDDs, users, SMB/NFS shares); that config is not in git
+#
+# TrueNAS (HexOS UI), things that make this play work
+#   - Cron job "snapshot-clone", root, daily 03:15, output hidden. Clones the newest
+#     snapshot of each dataset read-only to HDDs/offsite-clones/<ds>, which is
+#     what the borg job reads over NFS (TrueNAS has no crossmnt, so snapshots are
+#     empty over NFS). nfsd keeps an exported dataset busy, so the clone has to be
+#     unexported before the destroy and re-exported at the end:
+#
+#       sh -c 'rc=0; for ds in microservices mikkel haosBackups; do
+#         snap=$(zfs list -H -t snapshot -o name -s creation "HDDs/$ds" | grep "^HDDs/$ds@" | tail -1);
+#         [ -n "$snap" ] || { echo "no snapshot for HDDs/$ds" >&2; rc=1; continue; };
+#         exportfs -u "192.168.6.2:/mnt/HDDs/offsite-clones/$ds" 2>/dev/null; exportfs -f;
+#         zfs destroy -f "HDDs/offsite-clones/$ds" || rc=1;
+#         zfs clone -o readonly=on "$snap" "HDDs/offsite-clones/$ds" || rc=1;
+#       done; exportfs -ra; exit $rc'
+#       (one line in the UI; the line breaks above are for reading)
+#
+#   - NFS shares for 192.168.6.2 (read-only, maproot root): one per clone,
+#     /mnt/HDDs/offsite-clones/{microservices,mikkel,haosBackups}. They need a
+#     periodic snapshot task on the source datasets so the cron has something
+#     to clone
+#   - rw NFS share "Bulk storage for microservices server" (/mnt/HDDs/microservices,
+#     192.168.6.203): VM 101's data. Must stay
+#   - The old rsync task (/mnt/HDDs -> BorgPi, daily 00:00) is obsolete and was
+#     disabled: it recursed into the clones and kept them busy. Do not re-enable
+#
+# Hetzner Storage Box (BX21, u687936, port 23, --remote-path=borg-1.4)
+#   - sub-account 1 -> ./nas-data (borg-nas-offsite), sub-account 2 -> ./pbs-datastore
+#     (borg-pbs-offsite); each has an append-only restricted key. The sub-account
+#     passwords must differ from the borg passphrases (a password login bypasses
+#     append-only). Admin access is the desktop key.
+#
+# Run (root login over the gpg-agent key):
 #   export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh
-#   ansible-playbook proxmox.yml --check --diff | cat
-#   ansible-playbook proxmox.yml | cat
+#   ansible-playbook proxmox.yml --check --diff
+#   ansible-playbook proxmox.yml
+# (append "| cat" if ansible complains about non-blocking stdout, which happens
+# when stdout is a pipe from an automated tool)
 
 - name: Configure the Proxmox host
   hosts: proxmox
@@ -47,7 +104,46 @@
       borg-pbs-offsite: "{{ credentials.kuma.heartbeat.borg_pbs }}"
       borg-nas-offsite: "{{ credentials.kuma.heartbeat.borg_nas }}"
 
+    # qm/pct config key: value. Startup order = boot sequence after a host reboot.
+    guest_settings:
+      - {type: qm, id: 103, key: startup, value: "order=1,up=120"}
+      - {type: qm, id: 103, key: onboot, value: "1"}
+      - {type: qm, id: 103, key: agent, value: "1"}
+      - {type: qm, id: 101, key: startup, value: "order=2"}
+      - {type: qm, id: 101, key: onboot, value: "1"}
+      - {type: qm, id: 101, key: agent, value: "1"}
+      - {type: pct, id: 105, key: startup, value: "order=3,up=30"}
+      - {type: pct, id: 105, key: onboot, value: "1"}
+      - {type: pct, id: 105, key: features, value: "nesting=1"}
+      - {type: pct, id: 105, key: mp0, value: "/rpool/pbs,mp=/datastore"}
+
   tasks:
+    - name: Compare guest settings with the wanted values
+      ansible.builtin.shell: >-
+        {{ item.type }} config {{ item.id }} | grep -qxF '{{ item.key }}: {{ item.value }}'
+        && echo ok || echo differs
+      register: guest_diff
+      changed_when: guest_diff.stdout == 'differs'
+      check_mode: false
+      loop: "{{ guest_settings }}"
+      loop_control:
+        label: "{{ item.type }} {{ item.id }} {{ item.key }}"
+
+    # mp0/features/agent only take effect on the next guest restart; they match
+    # already, so this normally does nothing.
+    - name: Set the guest settings that differ
+      ansible.builtin.command: "{{ item.item.type }} set {{ item.item.id }} --{{ item.item.key }} {{ item.item.value }}"
+      when: item.stdout == 'differs'
+      loop: "{{ guest_diff.results }}"
+      loop_control:
+        label: "{{ item.item.type }} {{ item.item.id }} {{ item.item.key }}"
+
+    # The entry holds the PBS API token secret, which is not in git; only check.
+    - name: Check the PBS storage entry exists
+      ansible.builtin.command: pvesm status --storage pbs-main
+      changed_when: false
+      check_mode: false
+
     # The TrueNAS cron job "snapshot-clone" (03:15) clones the newest snapshot of
     # each dataset to HDDs/offsite-clones/<ds>, shared read-only to this host.
     - name: Create the NAS mount points
