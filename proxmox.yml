@@ -40,9 +40,9 @@
 #     (the Storage Box sub-account keys, restricted to append-only there); the
 #     pbs-main token lives in /etc/pve/priv/storage/ (written by the play) and
 #     the PBS web UI admin password in /root/pbs-admin.pw inside CT 105
-#   - ZFS snapshots rpool@pre-pve84-upgrade (rollback point; destroy once the
-#     8.4 upgrade has proven stable) and rpool@pre-pve9-upgrade (taken
-#     2026-10-13 before the PVE 8 -> 9 upgrade; destroy after a clean backup cycle)
+#   - ZFS snapshot rpool@pre-pve9-upgrade (recursive, taken 2026-10-13 before the
+#     PVE 8 -> 9 upgrade; destroy after a clean backup cycle). The 8.4 one,
+#     pre-pve84-upgrade, was destroyed 2026-10-13
 #   - NIC pin: /etc/systemd/network/10-enp11s0.link (added 2026-10-13, matches
 #     MAC d8:43:ae:c3:72:99, Name=enp11s0, also in the initramfs) so a new kernel
 #     cannot rename the NIC bridged by vmbr0
