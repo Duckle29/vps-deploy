@@ -2,13 +2,13 @@
 # Off-site copy of the PBS datastore (rpool/pbs) to the Hetzner Storage Box.
 set -euo pipefail
 # shellcheck disable=SC1091
-. /etc/default/borg-pbs-offsite          # KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
+. /etc/default/borg-pbs-offsite          # OFFSITE_REPO, KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
 
 export BORG_PASSCOMMAND='cat /root/.config/borg/pbs-datastore.pass'
 export BORG_RSH='ssh -p 23 -i /root/.ssh/borg_pbs_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
 export BORG_REMOTE_PATH=borg-1.4
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
-REPO='ssh://u687936-sub2@u687936.your-storagebox.de:23/./pbs-datastore'
+REPO="${OFFSITE_REPO:?OFFSITE_REPO is not set in the /etc/default file}"
 SNAP='rpool/pbs@offsite'
 MNT='/rpool/pbs/.zfs/snapshot/offsite'
 

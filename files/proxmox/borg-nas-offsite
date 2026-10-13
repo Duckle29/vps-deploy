@@ -2,13 +2,13 @@
 # Off-site copy of the NAS datasets to the Hetzner Storage Box (sub-account nas).
 set -uo pipefail
 # shellcheck disable=SC1091
-. /etc/default/borg-nas-offsite          # KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
+. /etc/default/borg-nas-offsite          # OFFSITE_REPO, KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
 
 export BORG_PASSCOMMAND='cat /root/.config/borg/nas-data.pass'
 export BORG_RSH='ssh -p 23 -i /root/.ssh/borg_nas_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
 export BORG_REMOTE_PATH=borg-1.4
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
-REPO='ssh://u687936-sub1@u687936.your-storagebox.de:23/./nas-data'
+REPO="${OFFSITE_REPO:?OFFSITE_REPO is not set in the /etc/default file}"
 RATE="${UPLOAD_RATE_KIB:-74000}"
 DATASETS=(microservices mikkel haosBackups)
 

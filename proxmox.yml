@@ -88,7 +88,8 @@
 #     stay disabled or deleted: it recursed into the clones, kept them busy and
 #     pushed them to the Pi as if they were new data
 #
-# Hetzner Storage Box (BX21, u687936, port 23, --remote-path=borg-1.4)
+# Hetzner Storage Box (BX21, port 23, --remote-path=borg-1.4; account and
+# host are in vars/credentials.yml: borg.storage_box)
 #   - sub-account 1 -> ./nas-data (borg-nas-offsite), sub-account 2 -> ./pbs-datastore
 #     (borg-pbs-offsite); each has an append-only restricted key. The sub-account
 #     passwords must differ from the borg passphrases (a password login bypasses
@@ -278,6 +279,11 @@
       - pve-host-backup.service
       - pve-host-backup.timer
     timers: [borg-nas-offsite, borg-pbs-offsite, pve-host-backup]
+    # /etc/default/<name> -> OFFSITE_REPO for the borg jobs (Storage Box account
+    # from credentials.yml; the scripts in git carry no account names)
+    offsite_repo:
+      borg-nas-offsite: "ssh://{{ credentials.borg.storage_box.user_nas }}@{{ credentials.borg.storage_box.host }}:23/./nas-data"
+      borg-pbs-offsite: "ssh://{{ credentials.borg.storage_box.user_pbs }}@{{ credentials.borg.storage_box.host }}:23/./pbs-datastore"
     # /etc/default/<name> -> Uptime Kuma push monitor (external Kuma)
     kuma_env:
       pve-host-backup: "{{ credentials.kuma.heartbeat.host_config }}"
@@ -374,13 +380,17 @@
       notify: Reload systemd
 
     # Quoted because the push URLs contain & when they carry query parameters.
-    - name: Write the Kuma push URLs
+    - name: Write the Kuma push URLs and borg repo URLs
       ansible.builtin.copy:
         dest: "/etc/default/{{ item.key }}"
         owner: root
         group: root
         mode: '0600'
-        content: "KUMA_PUSH_URL='{{ item.value }}'\n"
+        content: |
+          KUMA_PUSH_URL='{{ item.value }}'
+          {% if item.key in offsite_repo %}
+          OFFSITE_REPO='{{ offsite_repo[item.key] }}'
+          {% endif %}
       loop: "{{ kuma_env | dict2items }}"
       loop_control:
         label: "{{ item.key }}"
