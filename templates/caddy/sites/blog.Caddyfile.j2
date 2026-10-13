@@ -1,0 +1,15 @@
+# {{ansible_managed}}
+
+# Hugo output of the blog repo; built by the webhook server (see
+# templates/webhook_server_config.ini.j2).
+blog.{{ domain }} {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    root * {{ blog_webroot }}/blog/public
+    @git path /.git /.git/*
+    respond @git 404
+    encode zstd gzip
+    file_server
+}

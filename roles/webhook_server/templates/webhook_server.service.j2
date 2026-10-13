@@ -1,12 +1,25 @@
+# {{ ansible_managed }}
 [Unit]
 Description=Gunicorn instance to serve my github webhooks
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-User=gunicorn
-Group=www-data
+User={{ wh_server_file_owner }}
+Group={{ wh_server_file_group }}
 WorkingDirectory={{ wh_server_install_dir }}
-ExecStart={{ wh_server_install_dir }}/venv/bin/gunicorn --workers 1 --bind "0.0.0.0:5012" app:app
+# One worker on purpose: deployments are serialised by an in-process lock.
+ExecStart={{ wh_server_install_dir }}/venv/bin/gunicorn --workers 1 --bind "{{ wh_server_bind }}:{{ wh_server_port }}" app:app
+Restart=on-failure
+RestartSec=5
+
+# The service runs git and the sites' build commands, but only has to write to
+# its own directory and the webroots.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths={{ ([wh_server_install_dir] + wh_server_webroots) | join(' ') }}
 
 [Install]
 WantedBy=multi-user.target

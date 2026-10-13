@@ -929,41 +929,72 @@
         container_default_behavior: 'no_defaults'
         detach: yes
 
-# - name: Deploy webhook based websites (resume, blog)
-#   hosts: homeserver
-#   become: true
-#   tags:
-#     - webhook
-  
-#   vars_files:
-#     - vars/shared_vars.yml
-#     - vars/credentials.yml
+- name: Deploy webhook based websites (resume, blog, wifir)
+  hosts: homeserver
+  become: true
+  tags:
+    - webhook
+    - websites
 
-#   vars:
-#     wh_server_config: 'templates/webhook_server_config.ini.j2'
-#     wh_server_file_group: 'caddy'
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
 
-#   pre_tasks:
-#     - name: Ensure hugo is installed to build the blog
-#       package:
-#         name: hugo
-#         state: present
+  vars:
+    wh_server_config: 'templates/webhook_server_config.ini.j2'
+    wh_server_file_group: 'caddy'
+    wh_server_port: '{{ portmap.webhook_serv[0] }}'
+    wh_server_webroots:
+      - '{{ mikkelcc_webroot }}'
+      - '{{ blog_webroot }}'
+      - '{{ wifir_webroot }}'
+    # The version the blog was built with on the VPS. Building with it gives
+    # byte-identical output (checked 2026-10-13 against the VPS public dir).
+    hugo_version: '0.68.3'
+    hugo_checksum: 'sha256:d93d0deac782a4dd8afc2bbc5d96b30590ce47e8afb9810bbe7551eb3acf9189'
 
-#   tasks:
-#     - name: Ensure webroots are present
-#       file:
-#         group: caddy
-#         owner: gunicorn
-#         path: '{{ item }}'
-#         state: directory
-#       loop:
-#         - '{{ blog_webroot }}'
-#         - '{{ mikkelcc_webroot}}'
-#         - '{{ wifir_webroot }}'
+  tasks:
+    - name: Download hugo (extended)
+      ansible.builtin.get_url:
+        url: 'https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_Linux-64bit.tar.gz'
+        dest: '/var/tmp/hugo_extended_{{ hugo_version }}.tar.gz'
+        checksum: '{{ hugo_checksum }}'
+        mode: '0644'
 
-#     - name: Install webhook server
-#       include_role: 
-#         name: webhook_server
+    - name: Install hugo
+      ansible.builtin.unarchive:
+        src: '/var/tmp/hugo_extended_{{ hugo_version }}.tar.gz'
+        dest: /usr/local/bin
+        include: hugo
+        remote_src: true
+        creates: '/usr/local/bin/hugo'
+
+    - name: Ensure the webhook user exists before the webroots
+      ansible.builtin.user:
+        name: gunicorn
+        password: '!'
+        home: /srv/webhook_server
+        create_home: false
+        system: true
+
+    # The server clones into these on first start, so they have to exist and
+    # be writable by it. Caddy only reads them.
+    - name: Ensure webroots are present
+      ansible.builtin.file:
+        group: caddy
+        owner: gunicorn
+        path: '{{ item }}'
+        state: directory
+        mode: '0755'
+      loop:
+        - '{{ mikkelcc_webroot }}'
+        - '{{ blog_webroot }}'
+        - '{{ wifir_webroot }}'
+
+    - name: Install webhook server
+      ansible.builtin.include_role:
+        name: webhook_server
 
 - name: Deploy snuletek.org
   hosts: homeserver

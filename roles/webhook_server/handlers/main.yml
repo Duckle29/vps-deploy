@@ -1,7 +1,13 @@
 ---
+- name: reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: ansible_service_mgr == 'systemd'
+
 - name: restart webhook server
   become: true
-  service:
+  ansible.builtin.service:
     name: 'webhook_server'
     state: restarted
   when: ansible_service_mgr == 'systemd'

@@ -1,62 +1,84 @@
-- name: Install venv for Debian
+# Deploys the webhook server: app.py (own code, files/app.py) in a venv, run by
+# gunicorn as the unprivileged `gunicorn` user. It pulls the sites listed in the
+# config template and runs their build command.
+- name: Install python venv and git
   become: true
-  package:
-    name: python3-venv
-  when:
-    - ansible_os_family == 'Debian'
+  ansible.builtin.package:
+    name:
+      - python3-venv
+      - git
+    state: present
+  when: ansible_os_family == 'Debian'
 
-- name: Get webhook_server app from git
-  git:
-    repo: 'https://github.com/Duckle29/webhook_server.git'
-    dest: '{{ wh_server_install_dir }}'
-
-- name: Copy config template to config
-  template:
-    src: '{{ wh_server_config }}'
-    dest: '{{ wh_server_install_dir }}/config.ini'
-  notify: restart webhook server
-
-- name: add gunicorn system user
+- name: Add gunicorn system user
   become: true
-  user:
+  ansible.builtin.user:
     name: gunicorn
     password: '!'
     home: '{{ wh_server_install_dir }}'
+    create_home: false
     system: true
     state: present
 
-- name: Install webhook_server dependencies - Debian
-  pip:
-    requirements: '{{ wh_server_install_dir }}/requirements.txt'
-    state: present
-    virtualenv: '{{ wh_server_install_dir }}/venv'
-    virtualenv_command: '/usr/bin/python3 -m venv'
-  when:
-    - ansible_os_family == 'Debian'
-
-- name: Change filer ownership
-  file:
-    group: "{{ wh_server_file_group }}"
-    owner: "{{ wh_server_file_owner }}"
-    recurse: true
+- name: Create install directory
+  become: true
+  ansible.builtin.file:
     path: '{{ wh_server_install_dir }}'
     state: directory
+    owner: '{{ wh_server_file_owner }}'
+    group: '{{ wh_server_file_group }}'
+    mode: '0755'
+
+- name: Install the app and its requirements
+  become: true
+  ansible.builtin.copy:
+    src: '{{ item }}'
+    dest: '{{ wh_server_install_dir }}/{{ item }}'
+    owner: '{{ wh_server_file_owner }}'
+    group: '{{ wh_server_file_group }}'
+    mode: '0644'
+  loop:
+    - app.py
+    - requirements.txt
+  notify: restart webhook server
+
+# Holds the GitHub secret, so not world readable.
+- name: Write config.ini
+  become: true
+  ansible.builtin.template:
+    src: '{{ wh_server_config }}'
+    dest: '{{ wh_server_install_dir }}/config.ini'
+    owner: '{{ wh_server_file_owner }}'
+    group: '{{ wh_server_file_group }}'
+    mode: '0640'
+  notify: restart webhook server
+
+- name: Install dependencies into the venv
+  become: true
+  become_user: '{{ wh_server_file_owner }}'
+  ansible.builtin.pip:
+    requirements: '{{ wh_server_install_dir }}/requirements.txt'
+    virtualenv: '{{ wh_server_install_dir }}/venv'
+    virtualenv_command: '/usr/bin/python3 -m venv'
+  notify: restart webhook server
 
 - name: Set up systemd unit
-  template:
-    src: templates/webhook_server.service.j2
-    dest: /etc/systemd/system/webhook_server.service
-  when: ansible_service_mgr == "systemd"
-
-- name: Reload systemd daemon
   become: true
-  systemd:
-    daemon_reload: true
+  ansible.builtin.template:
+    src: webhook_server.service.j2
+    dest: /etc/systemd/system/webhook_server.service
+    mode: '0644'
   when: ansible_service_mgr == "systemd"
+  notify:
+    - reload systemd
+    - restart webhook server
+
+- name: Flush handlers so the unit is known before starting it
+  ansible.builtin.meta: flush_handlers
 
 - name: Start and enable webhook server
   become: true
-  service:
-    name: 'webhook_server'
+  ansible.builtin.service:
+    name: webhook_server
     enabled: true
     state: started

@@ -4,3 +4,8 @@ wh_server_endpoint: '/deploy'
 wh_server_config: ''
 wh_server_file_group: 'gunicorn'
 wh_server_file_owner: 'gunicorn'
+# One reverse proxy (Caddy) sits in front; it must set X-Forwarded-For.
+wh_server_bind: '127.0.0.1'
+wh_server_port: 5012
+# Directories the service may write to (the deployed webroots)
+wh_server_webroots: []

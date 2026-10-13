@@ -1,7 +1,15 @@
 # {{ansible_managed}}
 
-#{{ domain_mikkelcc }} {
-#    root {{ mikkelcc_webroot }}
-#    encode
-#    file_server browse
-#}
+# The resume page, deployed from GitHub by the webhook server.
+{{ domain_mikkelcc }} {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    root * {{ mikkelcc_webroot }}
+    @git path /.git /.git/*
+    respond @git 404
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+}
