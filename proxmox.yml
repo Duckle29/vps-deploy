@@ -75,9 +75,12 @@
 #       (one line in the UI; the line breaks above are for reading)
 #
 #   - NFS shares for 192.168.6.2 (read-only, maproot root): one per clone,
-#     /mnt/HDDs/offsite-clones/{microservices,mikkel,haosBackups}. The cron needs
-#     snapshots on the source datasets to clone (the periodic snapshot task's
-#     schedule and retention are not recorded here yet: check Data Protection)
+#     /mnt/HDDs/offsite-clones/{microservices,mikkel,haosBackups}
+#   - Periodic snapshot tasks (Data Protection), what the cron clones: one per
+#     dataset HDDs/{microservices,mikkel,haosBackups,HAOS}, not recursive, daily
+#     at 00:00, naming schema auto-%Y-%m-%d_%H-%M. So the off-site copy is the
+#     NAS as of midnight (snapshot 00:00, clone 03:15, borg 03:30). Retention
+#     (lifetime) is not recorded; check the task in the UI
 #   - rw NFS share "Bulk storage for microservices server" (/mnt/HDDs/microservices,
 #     192.168.6.203): VM 101's data. Must stay
 #   - The old rsync task (/mnt/HDDs -> BorgPi, daily 00:00) is obsolete and must
