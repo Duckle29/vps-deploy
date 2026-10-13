@@ -51,7 +51,10 @@ echo "== datastore"
 mkdir -p /datastore/main
 chown backup:backup /datastore/main
 if ! proxmox-backup-manager datastore list --output-format json | jq -e '.[] | select(.name=="main")' >/dev/null; then
-  proxmox-backup-manager datastore create main /datastore/main --gc-schedule 'sat 03:00'
+  # A rebuilt container finds the old chunk store on the bind mount: adopt it.
+  reuse=()
+  [ -d /datastore/main/.chunks ] && reuse=(--reuse-datastore true)
+  proxmox-backup-manager datastore create main /datastore/main --gc-schedule 'sat 03:00' "${reuse[@]}"
 fi
 
 echo "== users (admin for the web UI, pve for Proxmox VE)"

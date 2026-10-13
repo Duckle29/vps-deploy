@@ -12,13 +12,14 @@
 # NOT managed here (done by hand; this header is the record):
 #
 # Proxmox host
-#   - PBS container CT 105 itself (unprivileged Debian 13, 192.168.6.205, 2
-#     cores/2 GiB, mp0 /rpool/pbs -> /datastore, ZFS dataset rpool/pbs). The PBS 4
-#     install inside it is files/proxmox/pbs-setup.sh (idempotent, run inside the
-#     CT: pct push 105 files/proxmox/pbs-setup.sh /root/pbs-setup.sh;
-#     pct exec 105 -- bash /root/pbs-setup.sh). It writes the admin password to
-#     /root/pbs-admin.pw and the pve@pbs!pvesm token to /root/pvesm.token inside
-#     the CT (the token goes into the pbs-main storage entry on the host)
+#   - PBS container CT 105: managed by the first play ("Proxmox Backup Server
+#     container", tag pbs): creates the rpool/pbs dataset (400G quota, owned by
+#     uid 100034 = backup in the container), the container, runs
+#     files/proxmox/pbs-setup.sh inside it and adds/updates the pbs-main storage
+#     entry. It only acts when CT 105 does not exist; to re-run the install on
+#     an existing CT use -e pbs_force_setup=true (rotates the pvesm token, which
+#     the play re-applies to pbs-main). admin password: /root/pbs-admin.pw in the
+#     CT. The pbs-main secret lives only in /etc/pve/priv/storage/ on the host
 #   - CT 105 network: net0 hwaddr=BC:24:11:BF:FC:3D, ip=192.168.6.205/24, gw
 #     192.168.6.1 (static inside the CT). UniFi has a static DHCP lease for that
 #     MAC -> 192.168.6.205, so when recreating the CT, pin the same hwaddr
@@ -80,6 +81,158 @@
 #   ansible-playbook proxmox.yml
 # (append "| cat" if ansible complains about non-blocking stdout, which happens
 # when stdout is a pipe from an automated tool)
+
+# PBS container CT 105: dataset, container, PBS install, pbs-main storage entry.
+# Creates something only when CT 105 does not exist yet (or with
+# -e pbs_force_setup=true, which RE-RUNS pbs-setup.sh: that rotates the pvesm
+# API token, so pbs-main is re-pointed at the new one in the same run).
+- name: Proxmox Backup Server container
+  hosts: proxmox
+  become: false
+  tags:
+    - pbs
+
+  vars:
+    pbs_ctid: 105
+    pbs_template: debian-13-standard_13.6-1_amd64.tar.zst
+    pbs_ip: 192.168.6.205
+    # UniFi has a static DHCP lease for this MAC, keep it when recreating.
+    pbs_mac: "BC:24:11:BF:FC:3D"
+    pbs_storage: pbs-main
+    # backup (uid 34) inside the unprivileged container
+    pbs_host_uid: 100034
+
+  tasks:
+    - name: Look for the container
+      ansible.builtin.stat:
+        path: "/etc/pve/lxc/{{ pbs_ctid }}.conf"
+      register: pbs_ct
+
+    - name: Look for the datastore dataset
+      ansible.builtin.command: zfs list -H -o name rpool/pbs
+      register: pbs_ds
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Create the datastore dataset
+      ansible.builtin.command: >-
+        zfs create -o quota=400G -o compression=on -o atime=off rpool/pbs
+      when: pbs_ds.rc != 0
+
+    # Only the top level: the contents are written by PBS itself.
+    - name: Let the container's backup user own the datastore directory
+      ansible.builtin.file:
+        path: /rpool/pbs
+        owner: "{{ pbs_host_uid }}"
+        group: "{{ pbs_host_uid }}"
+        mode: '0755'
+
+    - name: Check for the Debian 13 template
+      ansible.builtin.shell: pveam list local | grep -q '{{ pbs_template }}'
+      register: pbs_tmpl
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: not pbs_ct.stat.exists
+
+    - name: Download the Debian 13 template
+      ansible.builtin.command: "pveam download local {{ pbs_template }}"
+      when: not pbs_ct.stat.exists and pbs_tmpl.rc != 0
+
+    - name: Create the container
+      ansible.builtin.command: >-
+        pct create {{ pbs_ctid }} local:vztmpl/{{ pbs_template }}
+        --hostname pbs --ostype debian --unprivileged 1
+        --cores 2 --memory 2048 --swap 512 --rootfs local-zfs:16
+        --features nesting=1
+        --net0 name=eth0,bridge=vmbr0,hwaddr={{ pbs_mac }},ip={{ pbs_ip }}/24,gw=192.168.6.1
+        --mp0 /rpool/pbs,mp=/datastore
+        --onboot 1 --startup order=3,up=30
+      when: not pbs_ct.stat.exists
+      register: pbs_created
+
+    - name: Run the PBS install now?
+      ansible.builtin.set_fact:
+        pbs_run_setup: "{{ pbs_created is changed or (pbs_force_setup | default(false) | bool) }}"
+
+    - name: Start the container
+      ansible.builtin.shell: >-
+        pct status {{ pbs_ctid }} | grep -q running || pct start {{ pbs_ctid }}
+      register: pbs_started
+      changed_when: "'pct start' in pbs_started.cmd and pbs_started.rc == 0 and pbs_run_setup"
+      when: pbs_run_setup
+
+    - name: Wait for the container network
+      ansible.builtin.command: pct exec {{ pbs_ctid }} -- getent hosts download.proxmox.com
+      register: pbs_net
+      until: pbs_net.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+      when: pbs_run_setup
+
+    - name: Install the PBS setup script on the host
+      ansible.builtin.copy:
+        src: files/proxmox/pbs-setup.sh
+        dest: /root/pbs-setup.sh
+        owner: root
+        group: root
+        mode: '0700'
+      when: pbs_run_setup
+
+    - name: Push and run the PBS setup in the container
+      ansible.builtin.shell: |
+        set -e
+        pct push {{ pbs_ctid }} /root/pbs-setup.sh /root/pbs-setup.sh --perms 0700
+        pct exec {{ pbs_ctid }} -- bash /root/pbs-setup.sh
+      register: pbs_setup
+      when: pbs_run_setup
+
+    - name: Show the setup summary
+      ansible.builtin.debug:
+        var: pbs_setup.stdout_lines
+      when: pbs_run_setup
+
+    # The token goes from the container's root-only file into the storage entry
+    # (command line, briefly visible to root on this host), then the file is
+    # removed so the secret rests only in /etc/pve/priv/storage.
+    - name: Read the API token and certificate fingerprint
+      ansible.builtin.shell: |
+        set -e
+        printf '%s\n' "$(pct exec {{ pbs_ctid }} -- cat /root/pvesm.token)"
+        pct exec {{ pbs_ctid }} -- proxmox-backup-manager cert info | grep -i fingerprint | awk '{print $NF}'
+      register: pbs_creds
+      changed_when: false
+      no_log: true
+      when: pbs_run_setup
+
+    - name: Look for the storage entry
+      ansible.builtin.command: "pvesm status --storage {{ pbs_storage }}"
+      register: pbs_sd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Add or update the storage entry
+      ansible.builtin.shell: |
+        set -e
+        tok='{{ pbs_creds.stdout_lines[0] }}'
+        fp='{{ pbs_creds.stdout_lines[1] }}'
+        if pvesm status --storage {{ pbs_storage }} >/dev/null 2>&1; then
+          pvesm set {{ pbs_storage }} --password "$tok" --fingerprint "$fp"
+        else
+          pvesm add pbs {{ pbs_storage }} --server {{ pbs_ip }} --datastore main \
+            --username 'pve@pbs!pvesm' --password "$tok" --fingerprint "$fp" --content backup
+        fi
+        pct exec {{ pbs_ctid }} -- rm -f /root/pvesm.token
+      no_log: true
+      when: pbs_run_setup
+
+    - name: The storage entry must exist
+      ansible.builtin.command: "pvesm status --storage {{ pbs_storage }}"
+      changed_when: false
+      check_mode: false
 
 - name: Configure the Proxmox host
   hosts: proxmox
