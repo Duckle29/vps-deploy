@@ -19,6 +19,11 @@
 #     pct exec 105 -- bash /root/pbs-setup.sh). It writes the admin password to
 #     /root/pbs-admin.pw and the pve@pbs!pvesm token to /root/pvesm.token inside
 #     the CT (the token goes into the pbs-main storage entry on the host)
+#   - CT 105 network: net0 hwaddr=BC:24:11:BF:FC:3D, ip=192.168.6.205/24, gw
+#     192.168.6.1 (static inside the CT). UniFi has a static DHCP lease for that
+#     MAC -> 192.168.6.205, so when recreating the CT, pin the same hwaddr
+#     (pct create ... --net0 name=eth0,bridge=vmbr0,hwaddr=BC:24:11:BF:FC:3D,
+#     ip=192.168.6.205/24,gw=192.168.6.1) or update the lease in UniFi
 #   - storage.cfg: pbs-main (datastore "main", user pve@pbs!pvesm, the token
 #     secret lives only on the host), local, local-zfs; hexos-share (CIFS, empty,
 #     obsolete, remove with pvesm remove)
