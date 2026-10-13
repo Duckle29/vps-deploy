@@ -4,6 +4,10 @@ portmap:
   ciao:
     webui: 8090
 
+  # Uptime Kuma (home instance, status2.mikkel.cc). Bound to 127.0.0.1.
+  kuma:
+    webui: 3001
+
   # Pelican (pelican.dev) is an open source game server management panel
   # (successor to Pterodactyl). The panel gives a web UI, users and per-server
   # resource limits; its "wings" daemon runs each game server as a Docker

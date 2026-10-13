@@ -780,6 +780,66 @@
         detach: yes
         auto_remove: no
 
+- name: Install Uptime Kuma (status2.mikkel.cc)
+  hosts: homeserver
+  become: True
+  tags:
+    - kuma
+    - status
+    - uptime
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    kuma_version: '2.5.6'
+    # The sites Caddy serves on this host. Kuma resolves them to the docker
+    # host (Caddy), so a monitor of https://paste.mikkel.cc/ tests the real
+    # Caddy site and certificate over the LAN without depending on hairpin NAT
+    # or public DNS. The external Kuma (watch.mikkel.cc) tests the public path.
+    kuma_local_hosts:
+      - mikkel.cc
+      - blog.mikkel.cc
+      - wifir.mikkel.cc
+      - webhooks.mikkel.cc
+      - paste.mikkel.cc
+      - sche.cc
+      - snuletek.org
+      - lounge.mikkel.cc
+      - lounge.snuletek.org
+      - nextcloud.mikkel.cc
+      - immich.mikkel.cc
+      - unifi.mikkel.cc
+      - ubnt.mikkel.cc
+      - joplin.mikkel.cc
+
+  tasks:
+    # SQLite: the data volume stays on the VM's local disk (Kuma does not
+    # support NFS for its database). VM 101 is backed up nightly by PBS.
+    - name: Create the Uptime Kuma data volume
+      community.docker.docker_volume:
+        name: uptime_kuma_data
+        labels:
+          application: "uptime-kuma"
+          managed_by: "ansible"
+
+    - name: Start Uptime Kuma
+      community.docker.docker_container:
+        name: uptime-kuma
+        image: 'louislam/uptime-kuma:{{ kuma_version }}'
+        ports:
+          - '127.0.0.1:{{ portmap.kuma.webui }}:3001'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'uptime_kuma_data:/app/data'
+        etc_hosts: "{{ dict(kuma_local_hosts | zip_longest([], fillvalue='host-gateway')) }}"
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
 - name: Install bepasty (paste.mikkel.cc)
   hosts: homeserver
   become: True
