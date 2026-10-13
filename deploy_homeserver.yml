@@ -949,18 +949,28 @@
       - '{{ mikkelcc_webroot }}'
       - '{{ blog_webroot }}'
       - '{{ wifir_webroot }}'
-    # The version the blog was built with on the VPS. Building with it gives
-    # byte-identical output (checked 2026-10-13 against the VPS public dir).
-    hugo_version: '0.68.3'
-    hugo_checksum: 'sha256:d93d0deac782a4dd8afc2bbc5d96b30590ce47e8afb9810bbe7551eb3acf9189'
+    # 0.168.0 needs two changes in the blog repo: `[pagination] pagerSize`
+    # instead of `paginate`, and `css.Sass` instead of `resources.ToCSS` in the
+    # m10c theme's baseof.html. The VPS used 0.68.3, which builds the unpatched
+    # repo with byte-identical output but cannot build the patched one. Push the
+    # blog patch only after this version is installed (rerun --tags webhook).
+    hugo_version: '0.168.0'
+    hugo_checksum: 'sha256:787f100057328824f38c6ad7c87ff10d6451ae0a7bc39cedaad0dd2bcde17e53'
 
   tasks:
+    - name: Read the installed hugo version
+      ansible.builtin.command: /usr/local/bin/hugo version
+      register: hugo_installed
+      changed_when: false
+      failed_when: false
+
     - name: Download hugo (extended)
       ansible.builtin.get_url:
-        url: 'https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_Linux-64bit.tar.gz'
+        url: 'https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_linux-amd64.tar.gz'
         dest: '/var/tmp/hugo_extended_{{ hugo_version }}.tar.gz'
         checksum: '{{ hugo_checksum }}'
         mode: '0644'
+      when: ('v' ~ hugo_version ~ '-') not in hugo_installed.stdout
 
     - name: Install hugo
       ansible.builtin.unarchive:
@@ -968,7 +978,7 @@
         dest: /usr/local/bin
         include: hugo
         remote_src: true
-        creates: '/usr/local/bin/hugo'
+      when: ('v' ~ hugo_version ~ '-') not in hugo_installed.stdout
 
     - name: Ensure the webhook user exists before the webroots
       ansible.builtin.user:

@@ -8,7 +8,7 @@
       - python3-venv
       - git
     state: present
-  when: ansible_os_family == 'Debian'
+  when: ansible_facts['os_family'] == 'Debian'
 
 - name: Add gunicorn system user
   become: true
@@ -68,7 +68,7 @@
     src: webhook_server.service.j2
     dest: /etc/systemd/system/webhook_server.service
     mode: '0644'
-  when: ansible_service_mgr == "systemd"
+  when: ansible_facts['service_mgr'] == "systemd"
   notify:
     - reload systemd
     - restart webhook server
