@@ -54,17 +54,22 @@
 #     stopped by the normal host shutdown (startup order, up=120 for HexOS)
 #   - PVE 9.2.21 on Debian 13 trixie, kernel 7.0.14-23-pve (upgraded from 8.4.21
 #     on 2026-10-13, ~5 min dist-upgrade run in tmux with --force-confold, so every
-#     conffile is the pre-upgrade one; leftovers /etc/issue.dpkg-dist and
-#     /etc/lvm/lvm.conf.dpkg-dist were not merged). The node is called `home`
+#     conffile is the pre-upgrade one, see below). The node is called `home`
 #     (pvesh /nodes/home, not proxmox0, which is only the DNS name)
-#   - apt sources (deb822 era): /etc/apt/sources.list (ftp.dk.debian.org trixie
-#     main contrib non-free-firmware, -updates, debian-security),
-#     sources.list.d/proxmox.sources (pve-no-subscription, trixie). Removed in the
-#     upgrade: ceph.list, the misnamed pve-enterprise.list (it held the PVE 8
-#     no-subscription line), the systemd-boot meta-package (the wiki says drop it
-#     unless systemd-boot was set up by hand; the host boots grub via
+#   - apt sources, all deb822 in /etc/apt/sources.list.d: debian.sources
+#     (ftp.dk.debian.org trixie, trixie-updates, debian-security; main contrib
+#     non-free-firmware), proxmox.sources (pve-no-subscription, trixie), and
+#     pve-enterprise.sources, which the PVE 9 packages create and which fails every
+#     `apt update` with 401 (no subscription), so it has `Enabled: false` appended.
+#     Check that line again after PVE upgrades. Removed in the upgrade: ceph.list,
+#     the misnamed pve-enterprise.list, the systemd-boot meta-package (the wiki says
+#     drop it unless systemd-boot was set up by hand; the host boots grub via
 #     proxmox-boot-tool). amd64-microcode is installed. Old sources are copied in
 #     /root/apt-backup-pve9
+#   - config files kept at the pre-upgrade version (--force-confold), checked
+#     2026-10-13: /etc/lvm/lvm.conf (ours = stock + PVE's global_filter for zd*/rbd*,
+#     which must stay) and /etc/issue (PVE regenerates the banner); the .dpkg-dist
+#     leftovers were deleted
 #   - ZFS: only rpool belongs to the host. /etc/zfs/zpool.cache is written
 #     (zpool set cachefile=/etc/zfs/zpool.cache rpool) and zfs-import-scan is
 #     MASKED. Without the cache file the scan unit runs, sees the passthrough
