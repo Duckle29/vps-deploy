@@ -173,6 +173,8 @@ BX21, port 23, `--remote-path=borg-1.4`. Account and host are in
 
 ## Related
 
+- `docs/codify.md`: which of the above could be moved into Ansible, and in what
+  order.
 - `proxmox.yml`: what the playbook manages (PBS container, backup scripts, units,
   Kuma env files, vzdump job, NFS automounts, guest settings).
 - `files/proxmox/`: the scripts the playbook installs. Never run `pbs-setup.sh` on
