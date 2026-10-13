@@ -965,45 +965,52 @@
 #       include_role: 
 #         name: webhook_server
 
-# - name: Deploy snuletek.org
-#   hosts: vps
-#   become: true
-#   tags:
-#     - snuletek
-  
-#   vars_files:
-#     - vars/shared_vars.yml
-#     - vars/port_usage.yml
+- name: Deploy snuletek.org
+  hosts: homeserver
+  become: true
+  tags:
+    - snuletek
 
-#   tasks:    
-#     - name: Get website
-#       git:
-#         repo: https://github.com/Duckle29/snuletek.git
-#         dest: '{{ snuletekorg_webroot }}'
-#         update: yes
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
 
-#     - name: Start php-apache container
-#       community.docker.docker_container:
-#         name: snuletek-php-apache
-#         image: php:7.4-apache
-#         pull: yes
-#         ports:
-#           - '{{ portmap.snuletek[0] }}:80'
-#         networks:
-#           - name: bridge
-#         networks_cli_compatible: yes
-#         network_mode: default
-#         restart_policy: 'unless-stopped'
-#         volumes:
-#           - '{{ snuletekorg_webroot }}:/var/www/html:ro'
-        
-#         container_default_behavior: 'no_defaults'
-#         tty: no
-#         read_only: no
-#         privileged: no
-#         paused: no
-#         memory: "0"
-#         interactive: no
-#         init: no
-#         detach: yes
-#         auto_remove: no
+  tasks:
+    - name: Ensure git is installed
+      ansible.builtin.package:
+        name: git
+        state: present
+
+    # A plain checkout on the VM's own disk (it is reproducible from GitHub, so
+    # it needs no NFS and no backup). Upstream has not changed since 2021, so
+    # this only does something when the repo is pushed to again.
+    - name: Get website
+      ansible.builtin.git:
+        repo: https://github.com/Duckle29/snuletek.git
+        dest: '{{ snuletekorg_webroot }}'
+        update: yes
+
+    # PHP 7.4 on the VPS was end of life. The 20 pages are plain includes and
+    # session_start; they lint clean and render without warnings on 8.4.
+    - name: Start php-apache container
+      community.docker.docker_container:
+        name: snuletek-php-apache
+        image: php:8.4-apache
+        pull: yes
+        ports:
+          - '127.0.0.1:{{ portmap.snuletek[0] }}:80'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ snuletekorg_webroot }}:/var/www/html:ro'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
