@@ -76,8 +76,8 @@ Fed by `host-health.timer` on proxmox0 (every 5 min, script
 `files/proxmox/host-health`, tokens `credentials.kuma.heartbeat.{ups,zfs}`).
 Create each as a Push monitor with heartbeat interval 600 s, retries 1.
 
-- [ ] UPS (`ups`): down unless `STATUS` is `ONLINE`
-- [ ] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
+- [x] UPS (`ups`): down unless `STATUS` is `ONLINE`
+- [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
       (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
 ### Watching the external Kuma
