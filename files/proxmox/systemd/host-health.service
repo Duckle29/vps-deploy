@@ -1,0 +1,7 @@
+[Unit]
+Description=Push UPS and ZFS health to Uptime Kuma
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/host-health
+Nice=10

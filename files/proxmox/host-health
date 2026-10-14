@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Pushes UPS and ZFS pool health to two Uptime Kuma push monitors.
+# Runs from host-health.timer. A failing check pushes status=down with the
+# reason; a monitor missing its heartbeat goes down by itself (script, timer or
+# host dead).
+set -uo pipefail
+ENV_FILE=/etc/default/host-health
+# shellcheck disable=SC1090
+[ -r "$ENV_FILE" ] && . "$ENV_FILE"   # KUMA_UPS_URL, KUMA_ZFS_URL (either may be unset)
+SPACE_LIMIT=85                        # percent used
+
+push() {  # url status msg
+  [ -n "$1" ] || return 0
+  curl -fsS -m 10 -G "${1%%\?*}" --data-urlencode "status=$2" \
+    --data-urlencode "msg=$3" >/dev/null || echo "push failed: $3" >&2
+}
+
+# UPS: up only while on mains.
+ups=$(apcaccess status 2>&1)
+ups_status=$(awk -F' *: *' '$1=="STATUS"{print $2}' <<<"$ups" | xargs)
+charge=$(awk -F' *: *' '$1=="BCHARGE"{print $2}' <<<"$ups" | xargs)
+left=$(awk -F' *: *' '$1=="TIMELEFT"{print $2}' <<<"$ups" | xargs)
+if [ "$ups_status" = ONLINE ]; then
+  push "${KUMA_UPS_URL:-}" up "ONLINE, battery ${charge}, ${left} left"
+else
+  push "${KUMA_UPS_URL:-}" down "UPS status: ${ups_status:-unreadable}, battery ${charge:-?}"
+fi
+
+# ZFS: pools of this host (HDDs lives inside the HexOS VM, not visible here).
+problems=""
+health=$(zpool status -x 2>&1)
+[ "$health" = "all pools are healthy" ] || problems="zpool: ${health//$'\n'/ }"
+while read -r name cap; do
+  [ "${cap%\%}" -ge "$SPACE_LIMIT" ] && problems+=" ${name} ${cap} full;"
+done < <(zpool list -H -o name,cap)
+if [ -z "$problems" ]; then
+  push "${KUMA_ZFS_URL:-}" up "pools healthy: $(zpool list -H -o name,cap | tr '\t\n' ' ')"
+else
+  push "${KUMA_ZFS_URL:-}" down "$problems"
+fi

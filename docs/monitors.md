@@ -72,11 +72,13 @@ Not monitored: **SSH on the NAS**. SSH is off on HexOS (a TCP check on
 
 ### Group: Backups and health (phase 2, push monitors)
 
-Fed by small timers on proxmox0. Not built yet.
+Fed by `host-health.timer` on proxmox0 (every 5 min, script
+`files/proxmox/host-health`, tokens `credentials.kuma.heartbeat.{ups,zfs}`).
+Create each as a Push monitor with heartbeat interval 600 s, retries 1.
 
-- [ ] UPS: push from `apcaccess`, down unless `STATUS` is `ONLINE`
-- [ ] ZFS health: push after `zpool status -x` (`rpool`)
-- [ ] Optional: free-space push for `rpool` and `HDDs` above 85 %
+- [ ] UPS (`ups`): down unless `STATUS` is `ONLINE`
+- [ ] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
+      (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
 ### Watching the external Kuma
 

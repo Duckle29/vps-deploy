@@ -203,6 +203,7 @@
     host_scripts:
       - borg-nas-offsite
       - borg-pbs-offsite
+      - host-health
       - pve-host-backup
       - vzdump-kuma-hook
     host_units:
@@ -210,9 +211,11 @@
       - borg-nas-offsite.timer
       - borg-pbs-offsite.service
       - borg-pbs-offsite.timer
+      - host-health.service
+      - host-health.timer
       - pve-host-backup.service
       - pve-host-backup.timer
-    timers: [borg-nas-offsite, borg-pbs-offsite, pve-host-backup]
+    timers: [borg-nas-offsite, borg-pbs-offsite, host-health, pve-host-backup]
     # /etc/default/<name> -> OFFSITE_REPO for the borg jobs (Storage Box account
     # from credentials.yml; the scripts in git carry no account names)
     offsite_repo:
@@ -328,6 +331,19 @@
       loop: "{{ kuma_env | dict2items }}"
       loop_control:
         label: "{{ item.key }}"
+      diff: false
+      no_log: true
+
+    # Only the monitors that have a token in credentials.yml are pushed to.
+    - name: Write the host-health push URLs
+      ansible.builtin.copy:
+        dest: /etc/default/host-health
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          KUMA_UPS_URL='{{ credentials.kuma.heartbeat.ups | default('') }}'
+          KUMA_ZFS_URL='{{ credentials.kuma.heartbeat.zfs | default('') }}'
       diff: false
       no_log: true
 
