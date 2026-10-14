@@ -48,11 +48,12 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] sche.cc (accept 302)
 - [x] snuletek.org
 - [x] lounge.mikkel.cc
-- [ ] lounge.snuletek.org
+- [x] lounge.snuletek.org: no separate monitor, same Caddy site as lounge.mikkel.cc
+      (the second name exists because mikkel.cc is blocked at work)
 - [x] nextcloud.mikkel.cc (`/status.php`, keyword `"installed":true`)
 - [x] immich.mikkel.cc (`/api/server/ping`, keyword `pong`)
 - [x] unifi.mikkel.cc / ubnt.mikkel.cc
-- [ ] joplin.mikkel.cc (ticked earlier, but no monitor exists in the home Kuma on 2026-10-14)
+- [x] joplin.mikkel.cc: not monitored on purpose; Joplin is being retired for Nextcloud Notes
 
 ### Group: Infrastructure (checked against /metrics 2026-10-14)
 
