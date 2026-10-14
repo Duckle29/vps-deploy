@@ -26,7 +26,7 @@ everything after Infrastructure are not ticked yet; tick what already exists.
 - [x] Second, independent channel (Discord), default-on: home
 - [x] Second, independent channel (Discord), default-on: external
 - [ ] Retries 2-3, retry interval 20-60 s on every monitor
-- [ ] Resend while down: every 60 checks (about hourly)
+- [ ] "Resend Notification if Down X times consecutively": 60 (about hourly), optional; 0 = one alert per outage
 - [ ] Cert expiry notifications (14/7/3 days) on HTTPS monitors
 - [ ] Monitor history retention 90 days
 - [ ] Maintenance windows used for PVE reboots/upgrades
@@ -63,7 +63,7 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] NAS NFS TCP `192.168.6.220:2049` (VM 101 depends on it)
 - [x] NAS SMB TCP `192.168.6.220:445`
 - [ ] NAS ping `192.168.6.220`
-- [ ] VM 101 SSH TCP `192.168.6.203:22` (monitor "SSH Microservices" exists but points at 192.168.6.220, the NAS; retarget)
+- [x] VM 101 SSH TCP `192.168.6.203:22` (monitor "SSH Microservices"; its stale URL field shows 192.168.6.220 in /metrics, the real hostname:port is correct)
 - [x] UniFi gateway ping `192.168.6.1`
 - [x] WAN: ping `1.1.1.1`
 - [x] WAN: DNS monitor `mikkel.cc` against `1.1.1.1`
