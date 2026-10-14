@@ -376,6 +376,8 @@
         state: started
         daemon_reload: true
       loop: "{{ timers }}"
+      # A timer unit that is new in this run does not exist yet in check mode.
+      ignore_errors: "{{ ansible_check_mode }}"
 
   handlers:
     - name: Reload systemd
