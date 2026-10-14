@@ -1,9 +1,6 @@
 ---
 portmap:
 
-  ciao:
-    webui: 8090
-
   # Uptime Kuma (home instance, status2.mikkel.cc). Bound to 127.0.0.1.
   kuma:
     webui: 3001
