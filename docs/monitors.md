@@ -12,7 +12,7 @@ everything after Infrastructure are not ticked yet; tick what already exists.
 - **Home Kuma** (`status2.mikkel.cc`, VM 101): "is my stuff healthy on the LAN?".
   Tests the Caddy sites over the LAN (`etc_hosts` -> `host-gateway` in the play),
   and keeps working when the internet is down.
-- **External Kuma** (`watch.mikkel.cc` / `status.mikkel.cc`, netcup): "can the world
+- **External Kuma** (`watch.mikkel.cc`, netcup): "can the world
   reach me?" and the dead-man switch for home itself.
 - They watch each other. One monitor per failure mode on the external one, so a home
   outage is one alert, not fifteen.
@@ -84,7 +84,6 @@ Create each as a Push monitor with heartbeat interval 600 s, retries 1.
 ### Watching the external Kuma
 
 - [ ] HTTPS `https://watch.mikkel.cc/` (keyword `Uptime Kuma`)
-- [ ] HTTPS `https://status.mikkel.cc/` (status page)
 
 ## External Kuma (watch.mikkel.cc)
 

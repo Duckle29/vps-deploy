@@ -274,9 +274,10 @@
     # Admin UI. DNS-only (grey cloud) on purpose: the watcher should not depend
     # on Cloudflare to be reachable.
     kuma_admin_domain: 'watch.mikkel.cc'
-    # Public status page (Cloudflare-proxied). Add this domain to the status
-    # page in Kuma (Status Pages -> edit -> Domain Names).
-    kuma_serve_status_domain: true
+    # Optional separate name for a public status page (Cloudflare-proxied; add
+    # it in Kuma under Status Pages -> edit -> Domain Names). Unused since
+    # 2026-10-14: everything is served on the admin name above.
+    kuma_serve_status_domain: false
     kuma_status_domain: 'status.mikkel.cc'
     acme_email: 'mikkel@mikkel.cc'
 
