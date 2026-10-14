@@ -72,16 +72,6 @@ Not monitored: **SSH on the NAS**. SSH is off on HexOS (a TCP check on
 `192.168.6.220:22` fails by design). Do not enable it just for Kuma; see
 `docs/codify.md` for when it would be needed.
 
-### Group: Backups and health (phase 2, push monitors)
-
-Fed by `host-health.timer` on proxmox0 (every 5 min, script
-`files/proxmox/host-health`, tokens `credentials.kuma.heartbeat.{ups,zfs}`).
-Create each as a Push monitor with heartbeat interval 600 s, retries 1.
-
-- [x] UPS (`ups`): down unless `STATUS` is `ONLINE`
-- [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
-      (host pools only; `HDDs` is inside the HexOS VM and is not visible)
-
 ### Watching the external Kuma
 
 - [ ] HTTPS `https://watch.mikkel.cc/` (keyword `Uptime Kuma`)
@@ -110,6 +100,18 @@ Interval 26 h, retries 0 (period + grace).
 - [ ] `pbs_vms`
 - [ ] `borg_pbs`
 - [ ] `borg_nas`
+
+### Host health push monitors (live)
+
+Fed by `host-health.timer` on proxmox0 (every 5 min, script
+`files/proxmox/host-health`, tokens `credentials.kuma.heartbeat.{ups,zfs}`).
+Push monitors, heartbeat interval 600 s, retries 1. They are on the external Kuma
+on purpose: the home Kuma runs on the same host and UPS, so it cannot report that
+host or the power going away; a missing heartbeat here is the alarm.
+
+- [x] UPS (`ups`): down unless `STATUS` is `ONLINE` or if `SELFTEST` is NG/BT
+- [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
+      (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
 ### After the esp / mqtt migration
 
