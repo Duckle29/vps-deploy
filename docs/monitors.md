@@ -62,7 +62,6 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] NAS web UI `192.168.6.220:443` (TCP or HTTPS, ignore TLS)
 - [x] NAS NFS TCP `192.168.6.220:2049` (VM 101 depends on it)
 - [x] NAS SMB TCP `192.168.6.220:445`
-- [ ] NAS ping `192.168.6.220`
 - [x] VM 101 SSH TCP `192.168.6.203:22` (monitor "SSH Microservices"; its stale URL field shows 192.168.6.220 in /metrics, the real hostname:port is correct)
 - [x] UniFi gateway ping `192.168.6.1`
 - [x] WAN: ping `1.1.1.1`
