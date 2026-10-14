@@ -109,7 +109,9 @@ Push monitors, heartbeat interval 600 s, retries 1. They are on the external Kum
 on purpose: the home Kuma runs on the same host and UPS, so it cannot report that
 host or the power going away; a missing heartbeat here is the alarm.
 
-- [x] UPS (`ups`): down unless `STATUS` is `ONLINE` or if `SELFTEST` is NG/BT
+- [x] UPS (`ups`): down unless `STATUS` is `ONLINE`, or if `SELFTEST` is NG/BT.
+      apcupsd's `onbattery`/`offbattery` hooks trigger an immediate push; ONBATT is
+      re-read after 40 s so the ~20 s biweekly self test never notifies.
 - [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
       (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 

@@ -17,9 +17,18 @@ push() {  # url status msg
 
 # UPS: up only while on mains with a healthy battery. STATUS gains a flag
 # (e.g. "ONLINE REPLACEBATT") after a failed self test, and SELFTEST reads NG/BT.
-ups=$(apcaccess status 2>&1)
+read_ups() {
+  ups=$(apcaccess status 2>&1)
+  ups_status=$(field STATUS)
+}
 field() { awk -F' *: *' -v k="$1" '$1==k{print $2}' <<<"$ups" | xargs; }
-ups_status=$(field STATUS)
+read_ups
+# The biweekly self test runs on battery for ~20 s. Only a state that persists
+# past the debounce counts as a power cut.
+if [[ "$ups_status" == *ONBATT* ]]; then
+  sleep 40
+  read_ups
+fi
 selftest=$(field SELFTEST)
 charge=$(field BCHARGE)
 left=$(field TIMELEFT)

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Called by /etc/apcupsd/apccontrol (offbattery). Replaces the packaged stub: first
+# makes the UPS push monitor update at once instead of at the next 5 min timer
+# run, then keeps the stock mail notification. host-health debounces ONBATT, so
+# the ~20 s self test does not notify.
+/usr/bin/systemctl start --no-block host-health.service
+
+HOSTNAME=`hostname`
+MSG="$HOSTNAME UPS $1 Power has returned"
+(
+   echo "$MSG"
+   echo " "
+   /usr/sbin/apcaccess status
+) | $APCUPSD_MAIL -s "$MSG" $SYSADMIN
+exit 0

@@ -306,6 +306,16 @@
         mode: '0755'
       loop: "{{ host_scripts }}"
 
+    # Hooks so the UPS monitor flips the moment power drops or returns.
+    - name: Install the apcupsd event hooks
+      ansible.builtin.copy:
+        src: "files/proxmox/apcupsd/{{ item }}"
+        dest: "/etc/apcupsd/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop: [onbattery, offbattery]
+
     - name: Install the systemd units
       ansible.builtin.copy:
         src: "files/proxmox/systemd/{{ item }}"
