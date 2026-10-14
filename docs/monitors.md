@@ -19,12 +19,12 @@ everything after Infrastructure are not ticked yet; tick what already exists.
 
 ## Global settings (both)
 
-- [ ] Admin 2FA enabled: home
-- [ ] Admin 2FA enabled: external
-- [ ] Notification: Migadu SMTP, default-on: home
-- [ ] Notification: Migadu SMTP, default-on: external
-- [ ] Second, independent channel (ntfy / Telegram / Pushover), default-on: home
-- [ ] Second, independent channel, default-on: external
+- [x] Admin 2FA enabled: home
+- [x] Admin 2FA enabled: external
+- [x] Notification: Migadu SMTP, default-on: home
+- [x] Notification: Migadu SMTP, default-on: external
+- [x] Second, independent channel (Discord), default-on: home
+- [x] Second, independent channel (Discord), default-on: external
 - [ ] Retries 2-3, retry interval 20-60 s on every monitor
 - [ ] Resend while down: every 60 checks (about hourly)
 - [ ] Cert expiry notifications (14/7/3 days) on HTTPS monitors
