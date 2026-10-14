@@ -47,24 +47,25 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] paste.mikkel.cc
 - [x] sche.cc (accept 302)
 - [x] snuletek.org
-- [x] lounge.mikkel.cc / lounge.snuletek.org
+- [x] lounge.mikkel.cc
+- [ ] lounge.snuletek.org
 - [x] nextcloud.mikkel.cc (`/status.php`, keyword `"installed":true`)
 - [x] immich.mikkel.cc (`/api/server/ping`, keyword `pong`)
 - [x] unifi.mikkel.cc / ubnt.mikkel.cc
-- [x] joplin.mikkel.cc
+- [ ] joplin.mikkel.cc (ticked earlier, but no monitor exists in the home Kuma on 2026-10-14)
 
-### Group: Infrastructure (in progress)
+### Group: Infrastructure (checked against /metrics 2026-10-14)
 
-- [ ] Proxmox UI `https://192.168.6.2:8006` (ignore TLS, keyword `Proxmox`)
-- [ ] PBS UI `https://192.168.6.205:8007` (ignore TLS)
-- [ ] NAS web UI `192.168.6.220:443` (TCP or HTTPS, ignore TLS)
-- [ ] NAS NFS TCP `192.168.6.220:2049` (VM 101 depends on it)
-- [ ] NAS SMB TCP `192.168.6.220:445`
+- [x] Proxmox UI `https://192.168.6.2:8006` (ignore TLS, keyword `Proxmox`)
+- [x] PBS UI `https://192.168.6.205:8007` (ignore TLS)
+- [x] NAS web UI `192.168.6.220:443` (TCP or HTTPS, ignore TLS)
+- [x] NAS NFS TCP `192.168.6.220:2049` (VM 101 depends on it)
+- [x] NAS SMB TCP `192.168.6.220:445`
 - [ ] NAS ping `192.168.6.220`
-- [ ] VM 101 SSH TCP `192.168.6.203:22`
-- [ ] UniFi gateway ping `192.168.6.1`
-- [ ] WAN: ping `1.1.1.1`
-- [ ] WAN: DNS monitor `mikkel.cc` against `1.1.1.1`
+- [ ] VM 101 SSH TCP `192.168.6.203:22` (monitor "SSH Microservices" exists but points at 192.168.6.220, the NAS; retarget)
+- [x] UniFi gateway ping `192.168.6.1`
+- [x] WAN: ping `1.1.1.1`
+- [x] WAN: DNS monitor `mikkel.cc` against `1.1.1.1`
 
 Not monitored: **SSH on the NAS**. SSH is off on HexOS (a TCP check on
 `192.168.6.220:22` fails by design). Do not enable it just for Kuma; see
