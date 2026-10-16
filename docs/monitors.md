@@ -3,9 +3,11 @@
 Monitor config lives only in the Kuma UIs (SQLite), so this file is the record and
 the checklist. Tick a box when the monitor exists and shows green.
 
-Last updated: 2026-10-13. Progress is as reported by Mikkel: home Kuma, group
-"Public services" done, working on "Infrastructure". The external Kuma and
-everything after Infrastructure are not ticked yet; tick what already exists.
+Last updated: 2026-10-16. Ticked from both Kumas' `/metrics` (all existing monitors
+were UP, TLS certs valid). `/metrics` does not expose retries, intervals, resend,
+cert-expiry notification settings, retention or maintenance windows, so those global
+items stay unticked until confirmed in the UI. The esp/mqtt items wait on the ESPHome
+decision (those services stay on the VPS).
 
 ## Split of responsibility
 
@@ -73,19 +75,19 @@ Not monitored: **SSH on the NAS**. SSH is off on HexOS (a TCP check on
 
 ### Watching the external Kuma
 
-- [ ] HTTPS `https://watch.mikkel.cc/` (keyword `Uptime Kuma`)
+- [x] HTTPS `https://watch.mikkel.cc/` (keyword `Uptime Kuma`)
 
 ## External Kuma (watch.mikkel.cc)
 
 ### Reachability and public path
 
-- [ ] Home reachable: TCP `home.mikkel.cc:443`, 60 s, retries 3
-- [ ] Caddy + TLS: HTTPS `https://sche.cc/<known code>`, accept 302, cert expiry on
-- [ ] Nextcloud: `/status.php`, keyword `"installed":true`
-- [ ] Immich: `/api/server/ping`, keyword `pong`
-- [ ] Webhook server: `webhooks.mikkel.cc/`, accept 404
-- [ ] Blog / snuletek.org: HTTPS, keyword from the page title
-- [ ] Home Kuma alive: `https://status2.mikkel.cc/`, keyword `Uptime Kuma`
+- [x] Home reachable: TCP `home.mikkel.cc:443`, 60 s, retries 3
+- [x] Caddy + TLS: HTTPS `https://sche.cc/<known code>`, accept 302, cert expiry on
+- [x] Nextcloud: `/status.php`, keyword `"installed":true`
+- [x] Immich: `/api/server/ping`, keyword `pong`
+- [x] Webhook server: `webhooks.mikkel.cc/`, accept 404
+- [x] Blog / snuletek.org: HTTPS, keyword from the page title
+- [x] Home Kuma alive: `https://status2.mikkel.cc/`, keyword `Uptime Kuma`
 
 DNS-only names (`paste`, `sche.cc`, `webhooks`, `wifir`, `esp`, `mqtt`) show the
 real certificate, so cert expiry alerts are meaningful there. Cloudflare-proxied
@@ -95,10 +97,10 @@ names show Cloudflare's certificate.
 
 Interval 26 h, retries 0 (period + grace).
 
-- [ ] `host_config`
-- [ ] `pbs_vms`
-- [ ] `borg_pbs`
-- [ ] `borg_nas`
+- [x] `host_config`
+- [x] `pbs_vms`
+- [x] `borg_pbs`
+- [x] `borg_nas`
 
 ### Host health push monitors (live)
 
