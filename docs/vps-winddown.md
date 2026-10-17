@@ -41,3 +41,15 @@ Read-only survey done without root, so database contents were not inspected.
 - [ ] Remove the `[vps]` plays that are no longer used from `deploy.yml`, or retire
       the file
 - [ ] Cancel the contract
+
+## Decisions (2026-10-17)
+
+Nothing from the VPS is archived. Dropped on purpose: `bitwarden_rs`, `bepasty_data`,
+`/home/mikkel`, the Nextcloud volumes, the MariaDB/MongoDB dumps, `pk_*`, the VPN
+(`ovpn-data-contabo`, `.ovpn` files), `/etc/nginx`, `ciao_data`, `thelounge_data`,
+`sopel_data`, UNMS, `cvat_cvat_*`, `cocalc_data`, `gitea_*`, `esp-ota_data`,
+`esp_update_server`, `satisfactory_data`, `mc_pomodoro_data`, the `duQTT*` broker
+volumes and the anonymous volumes.
+
+- [x] Stale DNS records deleted (checked 2026-10-17: autotorrent, bw, cocalc, git,
+      ofsm, unms and unms2 no longer resolve)
