@@ -3,11 +3,10 @@
 Monitor config lives only in the Kuma UIs (SQLite), so this file is the record and
 the checklist. Tick a box when the monitor exists and shows green.
 
-Last updated: 2026-10-16. Ticked from both Kumas' `/metrics` (all existing monitors
+Last updated: 2026-10-17 (esp/mqtt monitors added after the move to the homeserver). Ticked from both Kumas' `/metrics` (all existing monitors
 were UP, TLS certs valid). `/metrics` does not expose retries, intervals, resend,
 cert-expiry notification settings, retention or maintenance windows, so those global
-items stay unticked until confirmed in the UI. The esp/mqtt items wait on the ESPHome
-decision (those services stay on the VPS).
+items stay unticked until confirmed in the UI.
 
 ## Split of responsibility
 
@@ -118,7 +117,7 @@ host or the power going away; a missing heartbeat here is the alarm.
 
 ### ESP certificate bundle (play `espcerts`, deployed)
 
-- [ ] Push monitor `espcerts` on the external Kuma (token in
+- [x] Push monitor `espcerts` on the external Kuma (token in
       `credentials.kuma.heartbeat.espcerts`), heartbeat interval 8 days (the build
       runs weekly via `espcerts-bundle.timer`), retries 0. A failed build pushes
       down with the reason; a dead timer misses the heartbeat.
@@ -127,8 +126,8 @@ host or the power going away; a missing heartbeat here is the alarm.
 
 ### esp OTA and MQTT (deployed 2026-10-17, DNS on the homeserver)
 
-- [ ] esp OTA: TCP `esp.mikkel.cc:8445` (nginx, 512 B records; 8444 belongs to UniFi OS)
-- [ ] MQTT TLS: TCP `mqtt.mikkel.cc:8883`, 60 s
+- [x] esp OTA: TCP `esp.mikkel.cc:8445` (nginx, 512 B records; 8444 belongs to UniFi OS)
+- [x] MQTT TLS: TCP `mqtt.mikkel.cc:8883`, 60 s
 - [ ] ESP chain check: push monitor fed by a timer on netcup that runs
       `openssl s_client -verify_return_error` against `esp.mikkel.cc:8445` with ISRG
       Root X1 pinned (the chain must end there; the cross-signed Root YR expires Sep
