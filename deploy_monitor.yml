@@ -279,6 +279,7 @@
     # 2026-10-14, switched back on 2026-10-17 to have a public page again.
     kuma_serve_status_domain: true
     kuma_status_domain: 'status.mikkel.cc'
+    kuma_status_slug: 'default'           # status.mikkel.cc/ redirects to /status/<slug>
     acme_email: 'mikkel@mikkel.cc'
 
   handlers:
