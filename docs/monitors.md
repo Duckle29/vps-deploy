@@ -116,6 +116,15 @@ host or the power going away; a missing heartbeat here is the alarm.
 - [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
       (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
+### ESP certificate bundle (play `espcerts`, not deployed yet)
+
+- [ ] Push monitor `espcerts` on the external Kuma (token in
+      `credentials.kuma.heartbeat.espcerts`), heartbeat interval 8 days (the build
+      runs weekly via `espcerts-bundle.timer`), retries 0. A failed build pushes
+      down with the reason; a dead timer misses the heartbeat.
+- [ ] TCP `espcerts.mikkel.cc:8443` on the external Kuma (cert renewal is done by
+      Caddy, an expired or missing cert shows as an HTTPS failure)
+
 ### After the esp / mqtt migration
 
 - [ ] esp OTA: TCP `esp.mikkel.cc:443`

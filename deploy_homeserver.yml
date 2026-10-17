@@ -1042,3 +1042,193 @@
         init: no
         detach: yes
         auto_remove: no
+
+# The ESP firmware downloads certs.ar over HTTPS and its TLS stack only copes
+# with 512 byte records, so nginx (ssl_buffer_size 512) terminates TLS on its own
+# port; Caddy cannot do that, it only owns the certificate. The bundle is built
+# on the server from Mozilla's CA list (files/esp/get_moz_certs.py, a copy of the
+# one in the wifir firmware repo) and refreshed weekly by espcerts-bundle.timer.
+# Only roots trusted for websites are included (--tls-only): https and mqtts are
+# both server authentication. Every build reports to the Kuma push monitor
+# credentials.kuma.heartbeat.espcerts (heartbeat interval 8 days, since the timer
+# runs weekly); a failed build pushes down, a dead timer misses the heartbeat.
+# Refresh it by hand with: sudo systemctl start espcerts-bundle.service
+- name: Serve the ESP certificate bundle (esp certs)
+  hosts: homeserver
+  become: true
+  tags:
+    - espcerts
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    esp_certs_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ esp_certs_host }}'
+
+  handlers:
+    # A restart (not reload) so this also works if Caddy is stopped.
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+
+    # Caddy owns 80/443; the packaged default site would make nginx fail to bind.
+    - name: Remove the default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Certificate-owning site for Caddy
+      ansible.builtin.template:
+        src: templates/caddy/sites/espcerts.Caddyfile.j2
+        dest: /etc/caddy/sites/espcerts.Caddyfile
+      notify: Reload caddy
+
+    # nginx must not start before Caddy has the certificate.
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.crt'
+        timeout: 120
+
+    # Owned by the login user so the bundle can be updated with a plain scp.
+    - name: Directory for the bundle
+      ansible.builtin.file:
+        path: '{{ esp_certs_dir }}'
+        state: directory
+        owner: '{{ ansible_user | default(ansible_user_id) }}'
+        mode: '0755'
+
+    - name: Tools to build the bundle
+      ansible.builtin.apt:
+        name:
+          - python3
+          - openssl
+          - binutils
+          - curl
+        state: present
+
+    - name: Bundle generator
+      ansible.builtin.copy:
+        src: files/esp/get_moz_certs.py
+        dest: /usr/local/bin/espcerts-bundle
+        mode: '0755'
+
+    - name: Kuma push URL for the bundle build (root-only)
+      ansible.builtin.copy:
+        dest: /etc/default/espcerts
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          KUMA_URL='{{ credentials.kuma.heartbeat.espcerts | default('') }}'
+      no_log: true
+
+    - name: Build and report script
+      ansible.builtin.template:
+        src: templates/espcerts/espcerts-update.j2
+        dest: /usr/local/bin/espcerts-update
+        mode: '0755'
+
+    # Rewrites certs.ar only if the certificates changed, so nginx's ETag (and
+    # the devices' If-None-Match) stays valid between runs.
+    - name: Build certs.ar from Mozilla's CA list
+      ansible.builtin.command:
+        cmd: /usr/local/bin/espcerts-update
+      become_user: '{{ ansible_user | default(ansible_user_id) }}'
+      register: espcerts_bundle
+      changed_when: "'unchanged' not in espcerts_bundle.stdout"
+
+    - name: nginx site
+      ansible.builtin.template:
+        src: templates/nginx/espcerts.conf.j2
+        dest: /etc/nginx/conf.d/espcerts.conf
+      notify: Reload nginx
+
+    - name: Enable and start nginx
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+
+    # Caddy renews the certificate in place; nginx has to be told.
+    - name: Reload nginx when Caddy renews the certificate
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: espcerts-reload.path
+          body: |
+            [Unit]
+            Description=Watch the ESP certificate for renewal
+            [Path]
+            PathChanged={{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.crt
+            Unit=espcerts-reload.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: espcerts-reload.service
+          body: |
+            [Unit]
+            Description=Reload nginx after ESP certificate renewal
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/systemctl reload nginx
+        - name: espcerts-bundle.service
+          body: |
+            [Unit]
+            Description=Rebuild the ESP certificate bundle from Mozilla's CA list
+            After=network-online.target
+            Wants=network-online.target
+            [Service]
+            Type=oneshot
+            User={{ ansible_user | default(ansible_user_id) }}
+            EnvironmentFile=-/etc/default/espcerts
+            ExecStart=/usr/local/bin/espcerts-update
+        - name: espcerts-bundle.timer
+          body: |
+            [Unit]
+            Description=Weekly rebuild of the ESP certificate bundle
+            [Timer]
+            OnCalendar=weekly
+            RandomizedDelaySec=6h
+            Persistent=true
+            [Install]
+            WantedBy=timers.target
+      register: espcerts_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: espcerts-reload.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ espcerts_units is changed }}'
+
+    - name: Enable the weekly bundle rebuild
+      ansible.builtin.systemd:
+        name: espcerts-bundle.timer
+        enabled: true
+        state: started
+        daemon_reload: '{{ espcerts_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.esp_certs[0] | string }}'
+        proto: tcp
+      ignore_errors: true

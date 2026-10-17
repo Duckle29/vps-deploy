@@ -73,6 +73,12 @@ portmap:
   esp_ota:
     - 5051
 
+  # nginx with 512 B TLS records, serves certs.ar straight to the ESPs
+  esp_certs:
+    - 8443
+    # Caddy-internal site on loopback whose only job is to own the certificate
+    - 8446
+
   gitea:
     - 3000
     - 3222

@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+
+# Serves the certificate bundle for the ESPs. The ESP's TLS stack has a small
+# receive buffer, so every TLS record must be at most 512 bytes (same trick as
+# the old esp OTA server). Plain HTTP/1.1, no HTTP/2, no compression.
+server {
+    listen {{ portmap.esp_certs[0] }} ssl;
+    listen [::]:{{ portmap.esp_certs[0] }} ssl;
+    server_name {{ esp_certs_host }};
+
+    ssl_certificate     {{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.crt;
+    ssl_certificate_key {{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_buffer_size 512;
+    ssl_session_tickets off;
+
+    gzip off;
+    sendfile off;
+    access_log /var/log/nginx/espcerts.access.log;
+
+    root {{ esp_certs_dir }};
+
+    location = /certs.ar {
+        default_type application/octet-stream;
+        add_header Cache-Control "no-cache";
+    }
+
+    location / {
+        return 404;
+    }
+}
