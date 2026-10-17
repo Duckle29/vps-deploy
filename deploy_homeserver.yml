@@ -721,7 +721,8 @@
     - vars/credentials.yml
 
   vars:
-    kuma_version: '2.5.6'
+    # -slim: no Chromium (real-browser monitors), about 2 GB less on disk
+    kuma_version: '2.5.6-slim'
     # The sites Caddy serves on this host. Kuma resolves them to the docker
     # host (Caddy), so a monitor of https://paste.mikkel.cc/ tests the real
     # Caddy site and certificate over the LAN without depending on hairpin NAT
