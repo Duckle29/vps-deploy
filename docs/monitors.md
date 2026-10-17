@@ -55,7 +55,12 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] immich.mikkel.cc (`/api/server/ping`, keyword `pong`)
 - [x] unifi.mikkel.cc / ubnt.mikkel.cc
 - [x] joplin.mikkel.cc: not monitored on purpose; Joplin is being retired for Nextcloud Notes
-- [x] inventree.mikkel.cc: LAN-only name (UniFi DNS), so it is in `kuma_local_hosts`. JSON query monitor on
+
+### Group: Internal services (LAN only, no public DNS)
+
+Names that exist only in UniFi DNS. They still need an entry in `kuma_local_hosts`.
+
+- [x] inventree.mikkel.cc: JSON query monitor on
       `https://inventree.mikkel.cc/api/system/health/`, expression `status`, expected value `ok`
 
 ### Group: Infrastructure (checked against /metrics 2026-10-14)
