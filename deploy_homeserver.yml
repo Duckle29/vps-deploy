@@ -1583,6 +1583,16 @@
       INVENTREE_GUNICORN_TIMEOUT: '90'
 
   tasks:
+    # An empty value is null in YAML, which `| string` turns into the text "None".
+    - name: Refuse to start without the InvenTree credentials
+      ansible.builtin.assert:
+        that:
+          - credentials.inventree.admin_pass | default('', true) | string | length > 0
+          - credentials.inventree.admin_email | default('', true) | string | length > 0
+          - credentials.inventree.database_pass | default('', true) | string | length > 0
+        fail_msg: 'Fill in credentials.inventree.{admin_pass,admin_email,database_pass} in vars/credentials.yml'
+        quiet: true
+
     - name: Create the InvenTree network
       community.docker.docker_network:
         name: inventree
