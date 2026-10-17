@@ -25,6 +25,12 @@
 #   - guest_settings on VM 101/103 and CT 105: startup order, onboot, guest agent,
 #     CT nesting and the /rpool/pbs mountpoint (drift is corrected)
 #
+#   Play 3, "Proxmox virtual machines" (tag vms): creates VM 101 (Ubuntu 24.04 cloud
+#   image + cloud-init: user mikkel, ssh keys, guest agent, DHCP with the old MAC, 200 GB)
+#   and VM 103 (HexOS: empty, install ISO attached, the three data disks passed
+#   through; HexOS itself is installed in the GUI), each ONLY when it does not exist.
+#   Needs credentials.vm101.mikkel_password. Adds `snippets` to the `local` storage.
+#
 # NOT managed (done by hand): see docs/proxmox0.md, the record of the host, the
 # NAS VM, the TrueNAS cron/shares/snapshot tasks, the Hetzner accounts, the UPS
 # and the PVE 9 upgrade notes. Add anything undocumented you find there.
@@ -416,3 +422,272 @@
     - name: Reload systemd
       ansible.builtin.systemd_service:
         daemon_reload: true
+
+# Play 3 creates the two VMs, and ONLY when they do not exist (an existing VM is
+# never reconfigured here; see guest_settings and guest_disks above). Restore
+# data from PBS afterwards, or let deploy_homeserver.yml rebuild VM 101.
+- name: Proxmox virtual machines
+  hosts: proxmox
+  become: false
+  tags:
+    - vms
+
+  vars_files:
+    - vars/credentials.yml
+
+  vars:
+    # --- VM 101 "microservices": Ubuntu 24.04 cloud image + cloud-init ---------
+    vm101_id: 101
+    vm101_name: microservices
+    # UniFi hands out 192.168.6.203 by MAC, keep it when recreating.
+    vm101_mac: "BC:24:11:66:36:F1"
+    vm101_cores: 8
+    vm101_memory: 8192
+    vm101_disk_gb: 200
+    # The login password of the mikkel user (sudo). -e vm101_password=... overrides.
+    vm101_password: "{{ (credentials.vm101 | default({})).mikkel_password | default('') }}"
+    cloud_image_dir: /var/lib/vz/template/iso
+    cloud_image_name: noble-server-cloudimg-amd64.img
+    cloud_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    cloud_image_sums: https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+
+    # --- VM 103 "HexOS" (the NAS): created empty, HexOS is installed in the GUI -
+    vm103_id: 103
+    vm103_name: HexOS
+    vm103_mac: "BC:24:11:85:33:F9"
+    vm103_iso: TrueNAS-SCALE-24.10.0-HexOS.iso
+    # The three data disks are passed through whole and hold the HDDs pool. Set
+    # [] (-e '{"hexos_data_disks": []}') to try this play on a scratch VM id.
+    hexos_data_disks:
+      - {slot: scsi1, id: ata-ST4000VN006-3CW104_WW6567VB, serial: WW6567VB}
+      - {slot: scsi2, id: ata-ST4000VN006-3CW104_WW6566MD, serial: WW6566MD}
+      - {slot: scsi3, id: ata-ST4000VN006-3CW104_WW6566YR, serial: WW6566YR}
+
+  tasks:
+    - name: Look for VM 101
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ vm101_id }}.conf"
+      register: vm101
+
+    - name: Create VM 101
+      when: not vm101.stat.exists
+      block:
+        - name: Check the inputs
+          ansible.builtin.assert:
+            that:
+              - vm101_password | length > 0
+            fail_msg: "Set credentials.vm101.mikkel_password in vars/credentials.yml"
+            quiet: true
+
+        # cloud-init vendor data lives in a snippets directory, which `local`
+        # does not allow by default.
+        - name: Allow snippets on the local storage
+          ansible.builtin.shell: >-
+            grep -A3 '^dir: local$' /etc/pve/storage.cfg | grep -q snippets
+            && echo ok || { pvesm set local --content vztmpl,backup,iso,snippets && echo changed; }
+          register: snippets_content
+          changed_when: "'changed' in snippets_content.stdout"
+
+        - name: Snippets directory
+          ansible.builtin.file:
+            path: /var/lib/vz/snippets
+            state: directory
+            mode: "0755"
+
+        - name: Cloud-init vendor data and ssh keys
+          ansible.builtin.copy:
+            src: "files/proxmox/{{ item.src }}"
+            dest: "/var/lib/vz/snippets/{{ item.dest }}"
+            mode: "0644"
+          loop:
+            - {src: vm101-vendor.yaml, dest: vm101-vendor.yaml}
+            - {src: vm101_authorized_keys, dest: vm101-authorized_keys}
+
+        - name: Download the Ubuntu cloud image
+          ansible.builtin.get_url:
+            url: "{{ cloud_image_url }}"
+            dest: "{{ cloud_image_dir }}/{{ cloud_image_name }}"
+            checksum: "sha256:{{ cloud_image_sums }}"
+            mode: "0644"
+
+        - name: Create the VM and import the image
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - qm
+              - create
+              - "{{ vm101_id }}"
+              - --name
+              - "{{ vm101_name }}"
+              - --bios
+              - ovmf
+              - --machine
+              - q35
+              - --cpu
+              - x86-64-v4
+              - --sockets
+              - "1"
+              - --cores
+              - "{{ vm101_cores }}"
+              - --memory
+              - "{{ vm101_memory }}"
+              - --numa
+              - "0"
+              - --ostype
+              - l26
+              - --agent
+              - "1"
+              - --scsihw
+              - virtio-scsi-single
+              - --net0
+              - "virtio={{ vm101_mac }},bridge=vmbr0,firewall=1"
+              - --efidisk0
+              - "local-zfs:1,efitype=4m,pre-enrolled-keys=1"
+              - --scsi0
+              - "local-zfs:0,import-from={{ cloud_image_dir }}/{{ cloud_image_name }},iothread=1,discard=on"
+              - --ide2
+              - "local-zfs:cloudinit"
+              - --boot
+              - "order=scsi0"
+              - --onboot
+              - "1"
+              - --startup
+              - "order=2"
+              - --ciuser
+              - mikkel
+              - --cipassword
+              - "{{ vm101_password }}"
+              - --sshkeys
+              - /var/lib/vz/snippets/vm101-authorized_keys
+              - --ipconfig0
+              - ip=dhcp
+              - --cicustom
+              - "vendor=local:snippets/vm101-vendor.yaml"
+
+        - name: Grow the system disk
+          ansible.builtin.command: "qm resize {{ vm101_id }} scsi0 {{ vm101_disk_gb }}G"
+
+        - name: Start VM 101
+          ansible.builtin.command: "qm start {{ vm101_id }}"
+
+        # cloud-init installs the guest agent on first boot, so the ping also
+        # proves that the VM got network and ran its first boot.
+        - name: Wait for the guest agent
+          ansible.builtin.command: "qm agent {{ vm101_id }} ping"
+          register: vm101_agent
+          until: vm101_agent.rc == 0
+          retries: 60
+          delay: 10
+          changed_when: false
+
+        - name: Next steps for VM 101
+          ansible.builtin.debug:
+            msg: >-
+              VM {{ vm101_id }} is up with user mikkel (ssh key + the password from
+              credentials). Run deploy_homeserver.yml -K against it, then restore
+              the Docker data from PBS. The cloud image is DHCP: UniFi must have
+              the lease for {{ vm101_mac }}.
+
+    - name: Look for VM 103
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ vm103_id }}.conf"
+      register: vm103
+
+    - name: Create VM 103
+      when: not vm103.stat.exists
+      block:
+        - name: Look for the install ISO
+          ansible.builtin.stat:
+            path: "/var/lib/vz/template/iso/{{ vm103_iso }}"
+          register: hexos_iso
+
+        - name: Look for the data disks
+          ansible.builtin.stat:
+            path: "/dev/disk/by-id/{{ item.id }}"
+          loop: "{{ hexos_data_disks }}"
+          loop_control:
+            label: "{{ item.serial }}"
+          register: hexos_disks
+
+        - name: Look for other VMs that use the data disks
+          ansible.builtin.shell: "grep -l '{{ item.serial }}' /etc/pve/qemu-server/*.conf || true"
+          loop: "{{ hexos_data_disks }}"
+          loop_control:
+            label: "{{ item.serial }}"
+          register: hexos_disks_used
+          changed_when: false
+          check_mode: false
+
+        - name: Check the inputs
+          ansible.builtin.assert:
+            that:
+              - hexos_iso.stat.exists
+              - hexos_disks.results | map(attribute='stat.exists') | min | default(true)
+              - hexos_disks_used.results | map(attribute='stdout') | join('') | length == 0
+            fail_msg: >-
+              The install ISO {{ vm103_iso }} must be in /var/lib/vz/template/iso, the
+              three data disks must exist, and no other VM may already use them.
+            quiet: true
+
+        - name: Create the VM
+          ansible.builtin.command:
+            argv:
+              - qm
+              - create
+              - "{{ vm103_id }}"
+              - --name
+              - "{{ vm103_name }}"
+              - --bios
+              - ovmf
+              - --machine
+              - q35
+              - --cpu
+              - x86-64-v4
+              - --sockets
+              - "1"
+              - --cores
+              - "8"
+              - --memory
+              - "10240"
+              - --numa
+              - "0"
+              - --ostype
+              - l26
+              - --agent
+              - "1"
+              - --scsihw
+              - virtio-scsi-single
+              - --net0
+              - "virtio={{ vm103_mac }},bridge=vmbr0,firewall=1"
+              - --efidisk0
+              - "local-zfs:1,efitype=4m"
+              - --scsi0
+              - "local-zfs:64,discard=on,iothread=1,ssd=1"
+              - --ide2
+              - "local:iso/{{ vm103_iso }},media=cdrom"
+              - --boot
+              - "order=scsi0;ide2"
+              - --onboot
+              - "1"
+              - --startup
+              - "order=1,up=120"
+
+        - name: Pass the data disks through
+          ansible.builtin.command:
+            argv:
+              - qm
+              - set
+              - "{{ vm103_id }}"
+              - "--{{ item.slot }}"
+              - "/dev/disk/by-id/{{ item.id }},backup=0,serial={{ item.serial }}"
+          loop: "{{ hexos_data_disks }}"
+          loop_control:
+            label: "{{ item.slot }} {{ item.serial }}"
+
+        - name: Next steps for VM 103
+          ansible.builtin.debug:
+            msg: >-
+              VM {{ vm103_id }} exists but is not started. Start it, open the console
+              and install HexOS on the 64 GB disk (scsi0) ONLY: the three 4 TB disks
+              hold the HDDs pool. Afterwards eject the ISO (ide2). UniFi keeps the
+              lease for {{ vm103_mac }}.

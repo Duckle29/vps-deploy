@@ -91,8 +91,11 @@ Checked 2026-10-13, the `.dpkg-dist` leftovers were deleted:
   inside the guest were grown by hand (`growpart /dev/sda 2`, `resize2fs /dev/sda2`).
   The disk has no `discard=on`, so space freed inside the guest is not returned to ZFS.
 
-- VM 101 and 103 definitions beyond `guest_settings` and `guest_disks` (CPU,
-  memory, other disks, passthrough, NICs), and CT 105's cores/memory/rootfs/net0 after creation (the
+- Existing VM 101 and 103 are only touched for `guest_settings` and `guest_disks`.
+  `proxmox.yml` play 3 (tag `vms`) can CREATE either one when it is missing; it
+  has never replaced a live VM. The HexOS install itself (GUI), the TrueNAS
+  config and the data on VM 101 (restore from PBS) are not covered. The `local`
+  storage gets the `snippets` content type when VM 101 is created., and CT 105's cores/memory/rootfs/net0 after creation (the
   create step uses the values in the play).
 - `storage.cfg`: `local`, `local-zfs`, and `hexos-share` (CIFS, empty, obsolete;
   remove with `pvesm remove`).

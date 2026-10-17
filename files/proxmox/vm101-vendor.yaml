@@ -1,0 +1,8 @@
+#cloud-config
+# Vendor data for VM 101 (merged with the user data Proxmox generates):
+# the Ubuntu cloud image has no guest agent, and the VM config has agent: 1.
+package_update: true
+packages:
+  - qemu-guest-agent
+runcmd:
+  - systemctl enable --now qemu-guest-agent
