@@ -1234,7 +1234,7 @@
       ignore_errors: true
 
 # esp OTA update server (kstobbe/esp-update-server). The devices fetch firmware
-# from https://esp.mikkel.cc:8444 (basic auth); like the certificate bundle it is
+# from https://esp.mikkel.cc:8445 (basic auth); like the certificate bundle it is
 # served by nginx with 512 byte TLS records, and Caddy only owns the certificate.
 # The firmware binaries and platforms.yml live in the esp-ota_data docker volume.
 - name: Set up esp OTA server

@@ -26,10 +26,14 @@ portmap:
     APACHE: 11000
     TALK: 3479
 
+  # UniFi OS Server. Listening on the homeserver (checked 2026-10-17 with ss), all
+  # of them besides the ones below are taken: 5671, 5514/udp, 6789, 8444 (self-signed
+  # unifi.local certificate), 8880-8882, 9543, 10001/udp, 10003/udp
   unifi:
     - 11443 # main gui
     - 3478  # STUN for adoption and other
     - 8080  # Inform http
+    - 8444  # taken by UniFi OS, do not use
 
   unms:
     - 9443
@@ -74,7 +78,7 @@ portmap:
   # devices, and the Caddy-internal loopback site that owns esp.mikkel.cc's cert
   esp_ota:
     - 5051
-    - 8444
+    - 8445
     - 8447
 
   # nginx with 512 B TLS records, serves certs.ar straight to the ESPs
