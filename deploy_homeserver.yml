@@ -1446,7 +1446,7 @@
         mode: '0755'
         content: |
           #!/bin/sh
-          # {{ ansible_managed }}
+          # Managed by Ansible (deploy_homeserver.yml, play "Install Mosquitto MQTT broker")
           set -e
           src='{{ mqtt_caddy_dir }}'
           dst='{{ mosquitto_dir }}/certs'
