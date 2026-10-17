@@ -241,6 +241,12 @@
       - {type: pct, id: 105, key: features, value: "nesting=1"}
       - {type: pct, id: 105, key: mp0, value: "/rpool/pbs,mp=/datastore"}
 
+    # Virtual disk sizes. They only ever grow (qm resize refuses to shrink), and
+    # the partition and filesystem inside the guest are grown by hand afterwards:
+    # `growpart /dev/sda 2 && resize2fs /dev/sda2` on VM 101.
+    guest_disks:
+      - {id: 101, disk: scsi0, size_gb: 200}
+
   tasks:
     - name: Compare guest settings with the wanted values
       ansible.builtin.shell: >-
@@ -261,6 +267,23 @@
       loop: "{{ guest_diff.results }}"
       loop_control:
         label: "{{ item.item.type }} {{ item.item.id }} {{ item.item.key }}"
+
+    - name: Read the current disk sizes
+      ansible.builtin.shell: >-
+        qm config {{ item.id }} | sed -n 's/^{{ item.disk }}: .*size=\([0-9]*\)G.*/\1/p'
+      register: disk_sizes
+      changed_when: false
+      check_mode: false
+      loop: "{{ guest_disks }}"
+      loop_control:
+        label: "{{ item.id }} {{ item.disk }}"
+
+    - name: Grow the disks that are smaller than wanted
+      ansible.builtin.command: "qm resize {{ item.item.id }} {{ item.item.disk }} {{ item.item.size_gb }}G"
+      when: (item.stdout | default('0') | int) < item.item.size_gb
+      loop: "{{ disk_sizes.results }}"
+      loop_control:
+        label: "{{ item.item.id }} {{ item.item.disk }}"
 
     # The entry holds the PBS API token secret, which is not in git; only check.
     - name: Check the PBS storage entry exists

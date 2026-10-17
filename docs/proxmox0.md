@@ -86,8 +86,13 @@ Checked 2026-10-13, the `.dpkg-dist` leftovers were deleted:
 
 ### Guests and storage
 
-- VM 101 and 103 definitions beyond `guest_settings` (CPU, memory, disks,
-  passthrough, NICs), and CT 105's cores/memory/rootfs/net0 after creation (the
+- VM 101's system disk (scsi0) is 200 GB, managed by `guest_disks` in `proxmox.yml`
+  (grow only). It was grown from 100 GB on 2026-10-17; the partition and ext4
+  inside the guest were grown by hand (`growpart /dev/sda 2`, `resize2fs /dev/sda2`).
+  The disk has no `discard=on`, so space freed inside the guest is not returned to ZFS.
+
+- VM 101 and 103 definitions beyond `guest_settings` and `guest_disks` (CPU,
+  memory, other disks, passthrough, NICs), and CT 105's cores/memory/rootfs/net0 after creation (the
   create step uses the values in the play).
 - `storage.cfg`: `local`, `local-zfs`, and `hexos-share` (CIFS, empty, obsolete;
   remove with `pvesm remove`).
