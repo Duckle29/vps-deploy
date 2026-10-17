@@ -1,0 +1,70 @@
+# {{ ansible_managed }}
+# InvenTree's own proxy container (adapted from contrib/container/Caddyfile in
+# the InvenTree repo). It serves /static and /media and sends the rest to
+# gunicorn. TLS is terminated by the host Caddy in front of it.
+
+{
+	auto_https off
+	servers {
+		# The host Caddy reaches this one over the docker bridge. Trust it so its
+		# X-Forwarded-Proto/Host survive, InvenTree needs them for https and CSRF.
+		trusted_proxies static private_ranges
+	}
+}
+
+(cors-headers) {
+	header Allow GET,HEAD,OPTIONS
+	header Access-Control-Allow-Origin *
+	header Access-Control-Allow-Methods GET,HEAD,OPTIONS
+	header Access-Control-Allow-Headers Authorization,Content-Type,User-Agent,traceparent
+
+	@cors_preflight{args[0]} method OPTIONS
+
+	handle @cors_preflight{args[0]} {
+		respond "" 204
+	}
+}
+
+# Container health check only
+:9090 {
+	handle /api/system/health/* {
+		reverse_proxy http://inventree-server:8000
+	}
+
+	handle {
+		respond 404
+	}
+}
+
+:80 {
+	log
+
+	encode gzip
+
+	request_body {
+		max_size 100MB
+	}
+
+	handle_path /static/* {
+		import cors-headers static
+
+		root * /var/www/static
+		file_server
+	}
+
+	handle_path /media/* {
+		import cors-headers media
+
+		root * /var/www/media
+		file_server
+
+		header Content-Disposition attachment
+
+		# Media is only for logged-in users, InvenTree answers /auth/
+		forward_auth http://inventree-server:8000 {
+			uri /auth/
+		}
+	}
+
+	reverse_proxy http://inventree-server:8000
+}

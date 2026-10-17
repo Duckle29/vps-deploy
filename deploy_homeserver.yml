@@ -1540,3 +1540,186 @@
         port: '{{ portmap.mosquitto[1] | string }}'
         proto: tcp
       ignore_errors: true
+
+- name: Install InvenTree (inventree.mikkel.cc)
+  hosts: homeserver
+  become: true
+  tags:
+    - inventree
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    inventree_version: '1.5.8'
+    inventree_postgres_version: '17'
+    inventree_redis_version: '7-alpine'
+    inventree_caddy_version: 'alpine'
+    # Shared by the server and the worker, same as InvenTree's .env file.
+    inventree_env:
+      INVENTREE_SITE_URL: 'https://{{ inventree_domain }}'
+      INVENTREE_WEB_PORT: '8000'
+      INVENTREE_USE_X_FORWARDED_HOST: 'True'
+      INVENTREE_USE_X_FORWARDED_PORT: 'True'
+      INVENTREE_USE_X_FORWARDED_PROTO: 'True'
+      INVENTREE_TIMEZONE: 'Europe/Copenhagen'
+      INVENTREE_LOG_LEVEL: 'WARNING'
+      INVENTREE_PLUGINS_ENABLED: 'True'
+      INVENTREE_AUTO_UPDATE: 'True'
+      INVENTREE_ADMIN_USER: 'admin'
+      INVENTREE_ADMIN_PASSWORD: '{{ credentials.inventree.admin_pass }}'
+      INVENTREE_ADMIN_EMAIL: '{{ credentials.inventree.admin_email }}'
+      INVENTREE_DB_ENGINE: 'postgresql'
+      INVENTREE_DB_NAME: 'inventree'
+      INVENTREE_DB_HOST: 'inventree-db'
+      INVENTREE_DB_PORT: '5432'
+      INVENTREE_DB_USER: 'inventree'
+      INVENTREE_DB_PASSWORD: '{{ credentials.inventree.database_pass }}'
+      INVENTREE_CACHE_ENABLED: 'True'
+      INVENTREE_CACHE_HOST: 'inventree-cache'
+      INVENTREE_CACHE_PORT: '6379'
+      INVENTREE_GUNICORN_TIMEOUT: '90'
+
+  tasks:
+    - name: Create the InvenTree network
+      community.docker.docker_network:
+        name: inventree
+
+    # Postgres stays on the VM's local disk (not NFS: locking and fsync latency),
+    # which the nightly PBS backup of VM 101 covers.
+    - name: Create the database volume
+      community.docker.docker_volume:
+        name: inventree_db
+        labels:
+          application: 'inventree'
+          managed_by: 'ansible'
+
+    # Static files, uploaded media and the generated secret key. The secret key
+    # (data/secret_key.txt) is created by InvenTree on first start, keep it with
+    # the data or the sessions and plugin settings break on a restore.
+    - name: InvenTree directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0755'
+      loop:
+        - '{{ inventree_dir }}'
+        - '{{ inventree_dir }}/data'
+        - '{{ inventree_dir }}/proxy'
+
+    - name: Proxy config
+      ansible.builtin.template:
+        src: templates/inventree/Caddyfile.j2
+        dest: '{{ inventree_dir }}/proxy/Caddyfile'
+        mode: '0644'
+      register: inventree_caddyfile
+
+    - name: Start the database
+      community.docker.docker_container:
+        name: inventree-db
+        image: 'postgres:{{ inventree_postgres_version }}'
+        networks:
+          - name: inventree
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'inventree_db:/var/lib/postgresql/data'
+        env:
+          PGDATA: '/var/lib/postgresql/data/pgdb'
+          POSTGRES_USER: '{{ inventree_env.INVENTREE_DB_USER }}'
+          POSTGRES_PASSWORD: '{{ inventree_env.INVENTREE_DB_PASSWORD }}'
+          POSTGRES_DB: '{{ inventree_env.INVENTREE_DB_NAME }}'
+        healthcheck:
+          test: ['CMD-SHELL', 'pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"']
+          interval: 15s
+          timeout: 5s
+          retries: 10
+          start_period: 20s
+
+        container_default_behavior: 'no_defaults'
+        detach: true
+
+    - name: Start the cache
+      community.docker.docker_container:
+        name: inventree-cache
+        image: 'redis:{{ inventree_redis_version }}'
+        # Cache only, nothing to persist
+        command: 'redis-server --save "" --appendonly no'
+        networks:
+          - name: inventree
+        restart_policy: 'unless-stopped'
+        healthcheck:
+          test: ['CMD', 'redis-cli', 'ping']
+          interval: 15s
+          timeout: 5s
+          retries: 10
+          start_period: 10s
+
+        container_default_behavior: 'no_defaults'
+        detach: true
+
+    - name: Start the server
+      community.docker.docker_container:
+        name: inventree-server
+        image: 'inventree/inventree:{{ inventree_version }}'
+        networks:
+          - name: inventree
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ inventree_dir }}/data:/home/inventree/data'
+        env: '{{ inventree_env | combine({"INVENTREE_SERVER": "http://inventree-server:8000"}) }}'
+        healthcheck:
+          test: ['CMD-SHELL', 'invoke server-health --address "http://localhost:${INVENTREE_WEB_PORT:-8000}"']
+          interval: 20s
+          timeout: 5s
+          retries: 10
+          start_period: 60s
+
+        container_default_behavior: 'no_defaults'
+        detach: true
+
+    - name: Start the background worker
+      community.docker.docker_container:
+        name: inventree-worker
+        image: 'inventree/inventree:{{ inventree_version }}'
+        command: 'invoke worker'
+        networks:
+          - name: inventree
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ inventree_dir }}/data:/home/inventree/data'
+        env: '{{ inventree_env }}'
+        healthcheck:
+          test: ['CMD-SHELL', 'invoke worker-health']
+          interval: 60s
+          timeout: 10s
+          retries: 3
+          start_period: 180s
+
+        container_default_behavior: 'no_defaults'
+        detach: true
+
+    - name: Start the proxy
+      community.docker.docker_container:
+        name: inventree-proxy
+        image: 'caddy:{{ inventree_caddy_version }}'
+        networks:
+          - name: inventree
+        ports:
+          - '127.0.0.1:{{ portmap.inventree[0] }}:80'
+        restart_policy: 'unless-stopped'
+        restart: '{{ inventree_caddyfile is changed }}'
+        volumes:
+          - '{{ inventree_dir }}/proxy/Caddyfile:/etc/caddy/Caddyfile:ro'
+          - '{{ inventree_dir }}/data/static:/var/www/static'
+          - '{{ inventree_dir }}/data/media:/var/www/media'
+        healthcheck:
+          test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:9090/api/system/health/']
+          interval: 20s
+          timeout: 5s
+          retries: 10
+          start_period: 20s
+
+        container_default_behavior: 'no_defaults'
+        detach: true
