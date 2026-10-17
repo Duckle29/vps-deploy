@@ -1,7 +1,7 @@
 # '{{ansible_managed}}'
 
 [main]
-github_secret = {{ wh_server_secret }}
+github_secret = {{ credentials.webhook_srv.secret }}
 endpoint = {{ wh_server_endpoint }}
 
 [Duckle29/startbootstrap-resume]
@@ -11,7 +11,7 @@ path = {{ mikkelcc_webroot }}
 [Duckle29/blog]
 clone_uri = https://github.com/Duckle29/blog
 path = {{ blog_webroot }}
-command = cd blog && hugo
+command = cd blog && hugo --cleanDestinationDir
 
 [Duckle29/wifir_pwa]
 clone_uri = https://github.com/Duckle29/wifir_pwa

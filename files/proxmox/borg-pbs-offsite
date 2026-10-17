@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Off-site copy of the PBS datastore (rpool/pbs) to the Hetzner Storage Box.
+set -euo pipefail
+# shellcheck disable=SC1091
+. /etc/default/borg-pbs-offsite          # OFFSITE_REPO, KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
+
+export BORG_PASSCOMMAND='cat /root/.config/borg/pbs-datastore.pass'
+export BORG_RSH='ssh -p 23 -i /root/.ssh/borg_pbs_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
+export BORG_REMOTE_PATH=borg-1.4
+export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
+REPO="${OFFSITE_REPO:?OFFSITE_REPO is not set in the /etc/default file}"
+SNAP='rpool/pbs@offsite'
+MNT='/rpool/pbs/.zfs/snapshot/offsite'
+
+push() {
+  [ -n "${KUMA_PUSH_URL:-}" ] || return 0
+  curl -fsS -m 10 --get --data-urlencode "status=$1" --data-urlencode "msg=$2" \
+    "${KUMA_PUSH_URL%%\?*}" >/dev/null 2>&1 || true
+}
+cleanup() { rc=$?; cd /; zfs destroy "$SNAP" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || push down "borg pbs-datastore failed (exit $rc)"; }
+trap cleanup EXIT
+
+zfs destroy "$SNAP" 2>/dev/null || true
+zfs snapshot "$SNAP"
+cd "$MNT"
+# PBS chunks are already zstd-compressed and content-addressed: no recompression.
+# Cap: 74000 KiB/s = ~609 Mbit/s = 70% of the ~870 Mbit/s measured upload (2026-10-11).
+borg create --stats --compression none --checkpoint-interval 600 --files-cache ctime,size \
+  --upload-ratelimit "${UPLOAD_RATE_KIB:-74000}" \
+  "$REPO::pbs-{utcnow:%Y-%m-%dT%H:%M:%S}" .
+push up "OK $(date -Is)"

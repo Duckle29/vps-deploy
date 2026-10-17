@@ -1,0 +1,11 @@
+[Unit]
+Description=Off-site copy of the NAS datasets to the Hetzner Storage Box (borg)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/borg-nas-offsite
+TimeoutStartSec=infinity
+Nice=10
+IOSchedulingClass=idle

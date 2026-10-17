@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+
+{
+	email {{ acme_email }}
+}
+
+{{ kuma_admin_domain }} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:{{ kuma_port }}
+}
+{% if kuma_serve_status_domain %}
+
+# Public status page, / redirects to its slug. Admin screens are hidden here, log in on {{ kuma_admin_domain }}.
+# This hides the UI only: the socket.io endpoint the login uses stays reachable.
+{{ kuma_status_domain }} {
+	encode zstd gzip
+	@admin path /dashboard* /settings* /add /add/* /edit/* /clone/* /list* /maintenance* /manage-status-page* /add-status-page* /setup* /setup-database*
+	respond @admin 404
+	@root path /
+	redir @root /status/{{ kuma_status_slug }} 302
+	reverse_proxy 127.0.0.1:{{ kuma_port }}
+}
+{% endif %}

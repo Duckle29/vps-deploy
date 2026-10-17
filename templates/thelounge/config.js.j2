@@ -1,0 +1,45 @@
+// # '{{ansible_managed}}'
+
+"use strict";
+
+module.exports = {
+	// ## Server settings
+	public: false,
+	port: 9000,
+	bind: undefined,
+	maxHistory: 10000, 
+	reverseProxy: true,	
+
+	// ## Client settings
+	leaveMessage: "Poof goes the quack - The Lounge - https://thelounge.chat",
+	theme: "morning",
+	prefetch: true,
+	prefetchStorage: true,
+	prefetchMaxImageSize: 10240,
+	prefetchMaxSearchSize: 500,
+
+
+	fileUpload: {
+		enable: true,
+		// baseUrl: "https://lounge.mikkel.cc/uploads/"
+		maxFileSize: 102400
+	},
+
+	// ## Default network
+	defaults: {
+		name: "Freenode",
+		host: "chat.freenode.net",
+		port: 6697,
+		password: "",
+		tls: true,
+		rejectUnauthorized: true,
+		nick: "thelounge%%",
+		username: "thelounge",
+		realname: "The Lounge User",
+		join: "#thelounge",
+	},
+
+	// ## User management
+	messageStorage: ["sqlite"],
+
+};

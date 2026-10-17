@@ -1,0 +1,1542 @@
+---
+# https://oneuptime.com/blog/post/2026-02-21-how-to-use-the-ansible-raw-module-for-bootstrapping/view
+- name: Raw bootstrap (no Python required)
+  hosts: homeserver
+  gather_facts: false
+  tags:
+    - dependencies
+    - python
+
+  tasks:
+    - name: Update package cache and install Python
+      ansible.builtin.raw: |
+        if command -v apt-get >/dev/null 2>&1; then
+          apt-get update -qq
+          apt-get install -y -qq python3 python3-apt sudo
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3 sudo
+        elif command -v apk >/dev/null 2>&1; then
+          apk add --no-cache python3 sudo
+        fi
+      register: install_result
+      changed_when: install_result.rc == 0
+
+    - name: Create ansible temp directory
+      ansible.builtin.raw: "mkdir -p /root/.ansible/tmp && chmod 700 /root/.ansible/tmp"
+      changed_when: false
+
+    - name: Verify Python is working
+      ansible.builtin.raw: |
+        python3 -c "import json; print(json.dumps({'status': 'ok'}))"
+      register: python_test
+      changed_when: false
+      failed_when: "'ok' not in python_test.stdout"
+
+- name: Proxmox guest agent
+  hosts: homeserver
+  become: true
+  tags:
+    - dependencies
+    - guest-agent
+
+  tasks:
+    # This host is a Proxmox VM. The agent lets Proxmox freeze the filesystems
+    # for consistent backups and shut the VM down cleanly. It needs `agent: 1`
+    # on the VM in Proxmox and a full stop/start of the VM to take effect.
+    # The unit is static: udev starts it once the virtio channel exists.
+    - name: Install qemu-guest-agent
+      ansible.builtin.apt:
+        name: qemu-guest-agent
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+- name: Install and set up Docker-CE
+  hosts: homeserver
+  become: true
+  tags:
+    - dependencies
+    - docker
+
+  vars:
+    docker_sdk: true
+    docker_compose: true
+  
+  roles:
+    - haxorof.docker_ce
+
+- name: Install Caddy
+  hosts: homeserver
+  become: true
+  tags:
+    - caddy
+    - ssl
+    - proxy
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+    - vars/cloudflare_ips.yml
+
+  handlers:
+    # Replacing the binary needs a restart; a reload keeps the running one.
+    # Defined first so it runs before the reload handler.
+    - name: Restart caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded
+
+  tasks:
+    - name: Ensure thirdpardy keyring/repo related packages are installed
+      ansible.builtin.apt:
+        update_cache: yes
+        name:
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+        state: present
+
+    - name: Add Cloudsmith repo key
+      ansible.builtin.apt_key:
+        url: "https://dl.cloudsmith.io/public/caddy/stable/gpg.key"
+        state: present
+
+    - name: Add Caddy repository to sources list
+      ansible.builtin.apt_repository:
+        repo:
+          "deb https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+          any-version main"
+        state: present
+        filename: caddy-stable
+
+    - name: Add Caddy src repository to sources list
+      ansible.builtin.apt_repository:
+        repo:
+          "deb-src https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+          any-version main"
+        state: present
+        filename: caddy-stable
+
+    - name: Install Caddy
+      ansible.builtin.apt:
+        update_cache: yes
+        name: caddy
+        state: present
+    
+    - name: Ensure golang is installed
+      ansible.builtin.apt:
+        update_cache: yes
+        name:
+          - golang-go
+        state: present
+
+    - name: Install xcaddy
+      ansible.builtin.apt:
+        deb: https://github.com/caddyserver/xcaddy/releases/download/v0.4.5/xcaddy_0.4.5_linux_amd64.deb
+
+    - name: Check caddy version
+      ansible.builtin.shell: caddy version
+      changed_when: no
+      failed_when: no
+      register: caddy_version_output
+
+    - name: Extract clean version number
+      ansible.builtin.set_fact:
+        current_caddy_version: "{{ caddy_version_output.stdout | split | first }}"
+
+    # The binary is built from Caddy plus the Cloudflare DNS plugin, so a plugin
+    # version change must trigger a rebuild too, not only a Caddy version change.
+    # The build id of what is installed is kept in a small marker file.
+    - name: Read the installed Caddy build id
+      ansible.builtin.slurp:
+        src: /usr/local/share/caddy-build-id
+      register: caddy_build_marker
+      failed_when: false
+
+    - name: Decide whether Caddy needs to be (re)built
+      ansible.builtin.set_fact:
+        caddy_build_id: "{{ caddy_version }}+caddy-dns-cloudflare-{{ caddy_cloudflare_plugin_version }}"
+        caddy_needs_build: >-
+          {{ current_caddy_version is ansible.builtin.version(caddy_version, '!=')
+             or ((caddy_build_marker.content | default('') | b64decode | trim)
+                 != (caddy_version ~ '+caddy-dns-cloudflare-' ~ caddy_cloudflare_plugin_version)) }}
+
+    - ansible.builtin.debug:
+        msg: "Current Caddy: {{ caddy_version_output.stdout }}; building {{ caddy_build_id }}"
+      when: caddy_needs_build | bool
+
+    - ansible.builtin.debug:
+        msg: "Caddy build already correct: {{ caddy_build_id }}"
+      when: not (caddy_needs_build | bool)
+
+    - name: Make temp build directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: build
+      register: build_dir
+      when: caddy_needs_build | bool
+
+    - name: Build caddy with Cloudflare DNS plugin
+      ansible.builtin.shell:
+        chdir: "{{ build_dir.path }}"
+        cmd: "xcaddy build {{ caddy_version }} --with github.com/caddy-dns/cloudflare@{{ caddy_cloudflare_plugin_version }}"
+      when: caddy_needs_build | bool
+
+    - name: DPKG divert for custom caddy build
+      community.general.dpkg_divert:
+        path: /usr/bin/caddy
+        divert: /usr/bin/caddy.default
+        rename: true
+      when: build_dir.path is defined
+    
+    - name: Move built binary into place
+      ansible.builtin.copy:
+        remote_src: yes
+        mode: preserve
+        src: "{{ build_dir.path }}/caddy"
+        dest: /usr/bin/caddy.custom
+      when: build_dir.path is defined
+      notify: Restart caddy
+
+    - name: Record the installed Caddy build id
+      ansible.builtin.copy:
+        content: "{{ caddy_build_id }}\n"
+        dest: /usr/local/share/caddy-build-id
+        owner: root
+        group: root
+        mode: '0644'
+      when: build_dir.path is defined
+
+    - name: Remove build tempdir
+      ansible.builtin.file:
+        path: "{{ build_dir.path }}"
+        state: absent
+      when: build_dir.path is defined
+
+    - name: Update-alternatives for caddy
+      community.general.alternatives:
+        link: /usr/bin/caddy
+        name: caddy
+        path: "{{ item[0] }}"
+        priority: "{{ item[1]}}"
+        state: present
+      loop:
+        - ["/usr/bin/caddy.default", 10]
+        - ["/usr/bin/caddy.custom", 50]
+      when: caddy_needs_build | bool
+
+    # The Cloudflare token (DNS-01 challenge) lives in a root-only environment
+    # file that systemd loads into the service, and the Caddyfiles refer to it
+    # as {env.CLOUDFLARE_API_TOKEN}. It never appears in a (world-readable)
+    # Caddyfile, and rotating it is "edit credentials.yml, run --tags caddy".
+    - name: Store the Cloudflare API token for Caddy (root-only)
+      ansible.builtin.copy:
+        dest: /etc/caddy/caddy.env
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          CLOUDFLARE_API_TOKEN={{ credentials.caddy.cloudflare_zone_api_token }}
+      no_log: true
+      notify: Restart caddy
+
+    - name: Create the Caddy service drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/caddy.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Load the Caddy environment file in the service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/caddy.service.d/10-cloudflare-env.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_homeserver.yml)
+          [Service]
+          EnvironmentFile=/etc/caddy/caddy.env
+      register: caddy_env_dropin
+      notify: Restart caddy
+
+    - name: Reload systemd units for the Caddy drop-in
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: caddy_env_dropin is changed
+
+    - name: Enable and start Caddy service
+      ansible.builtin.service:
+        name: caddy
+        enabled: yes
+        state: started
+      when: caddy_version_output.rc == 0
+
+    - name: Transfer the main Caddyfile
+      ansible.builtin.template:
+        src: templates/caddy/main.Caddyfile.j2
+        dest: /etc/caddy/Caddyfile
+      notify: Reload caddy
+
+    - name: Create directory for sub-sites
+      ansible.builtin.file:
+        path: /etc/caddy/sites
+        state: directory
+
+- name: Deploy Caddy site configs
+  hosts: homeserver
+  become: True
+  tags:
+    - sites
+    - caddy
+    - proxy
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded
+
+  vars_files:
+    - vars/port_usage.yml
+    - vars/shared_vars.yml
+    - vars/credentials.yml
+
+  tasks:
+      # Deploys all .Caddyfile.j2 files in templates/caddy/sites
+    - name: Deploy site configs
+      template:
+        src: '{{ item }}'
+        dest: '/etc/caddy/sites/{{ (item | basename | splitext)[0] }}'
+      with_fileglob:
+        - templates/caddy/sites/*.Caddyfile.j2
+      notify:
+        - Reload caddy
+
+- name: Network storage
+  hosts: homeserver
+  become: true
+  tags:
+    - storage
+
+  tasks:
+    - name: Install NFS dependencies
+      ansible.builtin.package:
+        name: nfs-common
+        state: present
+
+    # The NAS is a VM on the same Proxmox host and can come up after this VM
+    # (power cut, host reboot). _netdev orders the mount after the network,
+    # the long mount timeout lets systemd keep retrying until the NAS answers,
+    # and nofail keeps a missing NAS from dropping boot into emergency mode.
+    - name: Setup and mount NAS share
+      ansible.posix.mount:
+        src: hexos1.home:/mnt/HDDs/microservices
+        path: /mnt/hexos
+        boot: yes
+        fstype: nfs
+        state: mounted
+        opts: rw,sync,hard,_netdev,nofail,x-systemd.mount-timeout=600
+
+    # Docker must not start before the share is there: containers with bind
+    # mounts under /mnt/hexos would otherwise fail or, for plain host-path
+    # binds, start on an empty directory on the local disk.
+    - name: Create the Docker drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Make Docker wait for the NAS share
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker.service.d/10-wait-for-nfs.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_homeserver.yml)
+          [Unit]
+          RequiresMountsFor=/mnt/hexos
+      register: docker_nfs_dropin
+
+    # Only reloads unit files. It does not restart Docker (and its containers);
+    # the drop-in takes effect the next time Docker starts.
+    - name: Reload systemd units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: docker_nfs_dropin is changed
+
+- name: Install Nextcloud AiO
+  hosts: homeserver
+  become: True
+  tags:
+    - nextcloud
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    - name: Create nextcloud network
+      community.docker.docker_network:
+        name: nextcloud
+
+    - name: Create the local folder the nextcloud data dir
+      ansible.builtin.file:
+        path: /mnt/hexos/nextcloud
+        state: directory
+        mode: '0750'
+        owner: 'www-data'
+        group: 'root'
+
+    - name: Create nextcloud data volume
+      community.docker.docker_volume:
+        name: nextcloud_aio_nextcloud_datadir
+        driver: local
+        driver_options:
+          device: /mnt/hexos/nextcloud
+          type: "none"
+          o: bind
+        state: present
+        labels:
+          application: "nextcloud"
+          managed_by: "ansible"
+    
+    - name: Create nextcloud config volume
+      community.docker.docker_volume:
+        name: nextcloud_aio_mastercontainer
+        state: present
+        labels:
+          application: "nextcloud"
+          managed_by: "ansible"
+
+    - name: Start Nextcloud AiO
+      community.docker.docker_container:
+        name: nextcloud-aio-mastercontainer
+        image: ghcr.io/nextcloud-releases/all-in-one:latest
+        init: true
+        restart_policy: 'unless-stopped'
+        ports:
+          - '{{ portmap.nextcloud.AIO_MGMT }}:8080'
+        networks:
+          - name: nextcloud
+          - name: bridge
+
+        volumes:
+          - 'nextcloud_aio_mastercontainer:/mnt/docker-aio-config'
+          - '/var/run/docker.sock:/var/run/docker.sock:ro'
+        env:
+            NEXTCLOUD_DATADIR: 'nextcloud_aio_nextcloud_datadir'
+            APACHE_PORT: "{{ portmap.nextcloud.APACHE | string }}"
+            APACHE_IP_BINDING: '0.0.0.0'
+            APACHE_ADDITIONAL_NETWORK: ''
+            SKIP_DOMAIN_VALIDATION: 'false'
+            TALK_PORT: "{{ portmap.nextcloud.TALK | string }}"
+
+        # Defaults
+        auto_remove: false
+        detach: true
+        interactive: false
+        memory: "0"
+        paused: false
+        privileged: false
+        read_only: false
+        tty: false
+
+- name: Install thelounge (docker)
+  hosts: homeserver
+  become: True
+  tags:
+    - thelounge
+    - irc
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    # todo: Remember to chmod 'o+x' all the folders leading to the upload dir
+    - name: Create the local folder for thelounge data
+      ansible.builtin.file:
+        path: /mnt/hexos/thelounge
+        state: directory
+        mode: '0755'
+        owner: '1000'
+        group: '1000'
+
+    - name: Create thelounge data volume
+      community.docker.docker_volume:
+        name: thelounge_data
+        driver: local
+        driver_options:
+          device: /mnt/hexos/thelounge
+          type: "none"
+          o: bind
+        state: present
+        labels:
+          application: "thelounge"
+          managed_by: "ansible"
+        
+    - name: Get data volume path
+      community.docker.docker_volume_info:
+        name: thelounge_data
+      register: thelounge_data_volume_info
+    
+    - name: Set up config
+      template:
+        src: templates/thelounge/config.js.j2
+        dest: '/mnt/hexos/thelounge/config.js'
+
+    - name: Start thelounge container
+      community.docker.docker_container:
+        name: thelounge
+        image: ghcr.io/thelounge/thelounge:4.5.2
+        ports: 
+          - '{{ portmap.thelounge[0] }}:9000'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'thelounge_data:/var/opt/thelounge'
+      
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+- name: Install unifi OS
+  hosts: homeserver
+  become: true
+  tags:
+    - unifi
+
+  vars_files:
+    - vars/port_usage.yml
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded
+
+  tasks:
+    - name: Make directory to keep script in
+      ansible.builtin.file:
+        path: /opt/GlennRUnifi/
+        state: directory
+
+    - name: Get GlennR install script
+      ansible.builtin.get_url:
+        url: https://get.glennr.nl/unifi/install/unifi-os-server-5.1.15.sh
+        dest: /opt/GlennRUnifi/unifi-os-server.sh
+        checksum: sha256:e84cf4a154b5546edf2c153d79a2dd3df6b61fd6de191b64a40be55a0c16b42a
+    
+    - name: Get GlennR update script
+      ansible.builtin.get_url:
+        url: https://get.glennr.nl/unifi/update/unifi-update.sh
+        dest: /opt/GlennRUnifi/unifi-update.sh
+        checksum: sha256:b5107851f5ae9e6e13b6cbc12987429e5b0eafe0810f24f226b3b9b1eb717d3b
+
+    - name: Ensure dependencies are installed
+      ansible.builtin.package:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+
+    - name: Run GlennR script
+      ansible.builtin.command: /bin/bash unifi-os-server.sh --skip --install-unifi-os-server 
+      args:
+        chdir: /opt/GlennRUnifi/
+        creates: /var/lib/uosserver/bin/uosserver-service
+    
+    - name: Run GlennR update script
+      ansible.builtin.command: /bin/bash unifi-update.sh --skip
+      args:
+        chdir: /opt/GlennRUnifi/
+        removes: /var/lib/uosserver/bin/uosserver-service
+
+    # - name: Add an apt key for unifi
+    #   ansible.builtin.apt_key:
+    #     keyserver: keyserver.ubuntu.com
+    #     id: 06E85760C0A52C50 
+
+    # - name: Add unifi repository
+    #   ansible.builtin.apt_repository:
+    #     repo: "deb [ arch=amd64,arm64 ] https://www.ui.com/downloads/unifi/debian stable ubiquiti"
+    #     state: present
+    #     filename: 100-ubnt-unifi
+    
+    # - name: Add MongoDB repository
+    #   ansible.builtin.apt_repository:
+    #     repo: "deb [trusted=yes] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/3.6 multiverse"
+    #     state: present
+    #     filename: mongodb-org-3.6.list
+
+    # - name: update apt and installd dependencies
+    #   ansible.builtin.apt:
+    #     update_cache: true
+    #     name: "{{ item }}"
+    #     state: present
+    #   loop:
+    #     - ca-certificates
+    #     - apt-transport-https
+
+    # - name: Install unifi SDN
+    #   ansible.builtin.apt:
+    #     update_cache: true
+    #     name: 'unifi'
+    #     state: present
+  
+- name: Install sopel (libera)
+  hosts: homeserver
+  become: true
+  tags:
+    - irc
+    - sopel
+    - libera
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Create sopel volume
+      community.docker.docker_volume:
+        name: sopel_data
+    
+    - name: Get volume path
+      community.docker.docker_volume_info:
+        name: sopel_data
+      register: sopel_data_volume_info
+
+    - name: Set up folders
+      file:
+        path: '{{ item }}'
+        owner: '100000'
+        group: '100000'
+        state: directory
+      loop:
+        - '{{ sopel_data_volume_info.volume.Mountpoint }}'
+        - '{{ sopel_data_volume_info.volume.Mountpoint }}/log'
+
+
+    - name: Copy config to docker volume
+      template:
+        src: templates/sopel/default.cfg.j2
+        dest: '{{ sopel_data_volume_info.volume.Mountpoint }}/default.cfg'
+        owner: '100000'
+        group: '100000'
+
+    - name: Start sopel container
+      community.docker.docker_container:
+        name: sopel-libera
+        image: sopelirc/sopel:latest
+        pull: yes
+        networks:
+          - name: bridge
+        networks_cli_compatible: yes
+        network_mode: default
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'sopel_data:/home/sopel/.sopel'
+        env:
+            EXTRA_PYPI_PACKAGES: sopel-wolfram sopel-youtube
+        
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+- name: Install Immich
+  hosts: homeserver
+  become: true
+  tags:
+    - immich
+  
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+  
+  tasks:
+    - name: Create directory for docker-compose files
+      ansible.builtin.file:
+        path: /opt/immich_compose
+        state: directory
+    
+    - name: Transfer .env config
+      ansible.builtin.template:
+        src: "templates/immich/.env.j2"
+        dest: "/opt/immich_compose/.env"
+
+    - name: Get immich docker compose file
+      ansible.builtin.get_url:
+        url: https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+        dest: /opt/immich_compose/docker-compose.yml 
+
+    - name: docker-compose up
+      community.docker.docker_compose_v2:
+        project_src: /opt/immich_compose
+      register: output
+    
+    - name: Compose output
+      ansible.builtin.debug:
+        var: output
+
+- name: Install Uptime Kuma (status2.mikkel.cc)
+  hosts: homeserver
+  become: True
+  tags:
+    - kuma
+    - status
+    - uptime
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    kuma_version: '2.5.6'
+    # The sites Caddy serves on this host. Kuma resolves them to the docker
+    # host (Caddy), so a monitor of https://paste.mikkel.cc/ tests the real
+    # Caddy site and certificate over the LAN without depending on hairpin NAT
+    # or public DNS. The external Kuma (watch.mikkel.cc) tests the public path.
+    kuma_local_hosts:
+      - mikkel.cc
+      - blog.mikkel.cc
+      - wifir.mikkel.cc
+      - webhooks.mikkel.cc
+      - paste.mikkel.cc
+      - sche.cc
+      - snuletek.org
+      - lounge.mikkel.cc
+      - lounge.snuletek.org
+      - nextcloud.mikkel.cc
+      - immich.mikkel.cc
+      - unifi.mikkel.cc
+      - ubnt.mikkel.cc
+      - joplin.mikkel.cc
+
+  tasks:
+    # SQLite: the data volume stays on the VM's local disk (Kuma does not
+    # support NFS for its database). VM 101 is backed up nightly by PBS.
+    - name: Create the Uptime Kuma data volume
+      community.docker.docker_volume:
+        name: uptime_kuma_data
+        labels:
+          application: "uptime-kuma"
+          managed_by: "ansible"
+
+    - name: Start Uptime Kuma
+      community.docker.docker_container:
+        name: uptime-kuma
+        image: 'louislam/uptime-kuma:{{ kuma_version }}'
+        ports:
+          - '127.0.0.1:{{ portmap.kuma.webui }}:3001'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'uptime_kuma_data:/app/data'
+        etc_hosts: "{{ dict(kuma_local_hosts | zip_longest([], fillvalue='host-gateway')) }}"
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+- name: Install bepasty (paste.mikkel.cc)
+  hosts: homeserver
+  become: True
+  tags:
+    - bepasty
+    - pastebin
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  tasks:
+    # The container runs as root and keeps its generated bepasty.conf, the logs
+    # and the uploads (storage/) in the volume. Restore the VPS data into this
+    # folder before pointing DNS here.
+    - name: Create the local folder for bepasty data
+      ansible.builtin.file:
+        path: /mnt/hexos/bepasty
+        state: directory
+        mode: '0755'
+
+    - name: Create bepasty data volume
+      community.docker.docker_volume:
+        name: bepasty_data
+        driver: local
+        driver_options:
+          device: /mnt/hexos/bepasty
+          type: "none"
+          o: bind
+        state: present
+        labels:
+          application: "bepasty"
+          managed_by: "ansible"
+
+    - name: Start bepasty container
+      community.docker.docker_container:
+        name: bepasty
+        image: duckle/bepasty:stable
+        ports:
+          - '127.0.0.1:{{ portmap.bepasty[0] }}:5000'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'bepasty_data:/srv/bepasty'
+        # The values carry literal single quotes on purpose: the image writes
+        # them into a python config file (same as on the VPS).
+        env:
+          STORAGE_FILESYSTEM_DIRECTORY: "'/srv/bepasty/storage'"
+          SITENAME: "'paste.{{ domain }}'"
+          UPLOAD_LOCKED: 'False'
+          MAX_ALLOWED_FILE_SIZE: '5 * 1000 * 1000 * 1000'
+          MAX_BODY_SIZE: '1 * 1024 * 1024'
+          STORAGE: "'filesystem'"
+          SECRET_KEY: "'{{ credentials.bepasty.secret }}'"
+          SESSION_COOKIE_SECURE: 'True'
+          PERMANENT_SESSION: 'False'
+          PERMANENT_SESSION_LIFETIME: '31 * 24 * 3600'
+          DEFAULT_PERMISSIONS: "'read'"
+          PERMISSIONS: "{{ credentials.bepasty.permissions | join(', ') }}"
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+- name: Install Shlink (sche.cc)
+  hosts: homeserver
+  become: True
+  tags:
+    - shlink
+    - urlshort
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    shlink_version: '5.1.7'
+    shlink_mariadb_version: '11.4'
+
+  tasks:
+    - name: Create shlink network
+      community.docker.docker_network:
+        name: shlink
+
+    # MariaDB stays on the VM's local disk (not NFS: locking and fsync latency),
+    # which the nightly PBS backup of VM 101 covers.
+    - name: Create shlink database volume
+      community.docker.docker_volume:
+        name: shlink_db
+        labels:
+          application: "shlink"
+          managed_by: "ansible"
+
+    - name: Start the shlink database
+      community.docker.docker_container:
+        name: shlink-mariadb
+        image: 'mariadb:{{ shlink_mariadb_version }}'
+        command: '--transaction-isolation=READ-COMMITTED --binlog-format=ROW'
+        networks:
+          - name: shlink
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'shlink_db:/var/lib/mysql'
+        env:
+          MARIADB_ROOT_PASSWORD: '{{ credentials.shlink.mysql_root_pass }}'
+          MARIADB_PASSWORD: '{{ credentials.shlink.database_pass }}'
+          MARIADB_DATABASE: 'shlink'
+          MARIADB_USER: 'shlink'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+    - name: Start Shlink container
+      community.docker.docker_container:
+        name: shlink
+        image: 'shlinkio/shlink:{{ shlink_version }}'
+        networks:
+          - name: shlink
+        ports:
+          - '127.0.0.1:{{ portmap.shlink[0] }}:8080'
+        restart_policy: 'unless-stopped'
+        env:
+          DEFAULT_DOMAIN: '{{ shlink_domain }}'
+          IS_HTTPS_ENABLED: 'true'
+          TIMEZONE: 'Europe/Copenhagen'
+          GEOLITE_LICENSE_KEY: '{{ credentials.shlink.geolite_token }}'
+          DB_DRIVER: 'maria'
+          DB_NAME: 'shlink'
+          DB_USER: 'shlink'
+          DB_PASSWORD: '{{ credentials.shlink.database_pass }}'
+          DB_HOST: 'shlink-mariadb'
+          DISABLE_TRACK_PARAM: 'no-track'
+          # Caddy is the one proxy in front of Shlink; it sets X-Forwarded-For
+          # to the real visitor (see templates/caddy/sites/shlink.Caddyfile.j2).
+          # Shlink 5 no longer detects proxies on its own.
+          TRUSTED_PROXIES: '1'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+- name: Deploy webhook based websites (resume, blog, wifir)
+  hosts: homeserver
+  become: true
+  tags:
+    - webhook
+    - websites
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    wh_server_config: 'templates/webhook_server_config.ini.j2'
+    wh_server_file_group: 'caddy'
+    wh_server_port: '{{ portmap.webhook_serv[0] }}'
+    wh_server_webroots:
+      - '{{ mikkelcc_webroot }}'
+      - '{{ blog_webroot }}'
+      - '{{ wifir_webroot }}'
+    # 0.168.0 needs two changes in the blog repo: `[pagination] pagerSize`
+    # instead of `paginate`, and `css.Sass` instead of `resources.ToCSS` in the
+    # m10c theme's baseof.html. The VPS used 0.68.3, which builds the unpatched
+    # repo with byte-identical output but cannot build the patched one. Push the
+    # blog patch only after this version is installed (rerun --tags webhook).
+    hugo_version: '0.168.0'
+    hugo_checksum: 'sha256:787f100057328824f38c6ad7c87ff10d6451ae0a7bc39cedaad0dd2bcde17e53'
+
+  tasks:
+    - name: Read the installed hugo version
+      ansible.builtin.command: /usr/local/bin/hugo version
+      register: hugo_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Download hugo (extended)
+      ansible.builtin.get_url:
+        url: 'https://github.com/gohugoio/hugo/releases/download/v{{ hugo_version }}/hugo_extended_{{ hugo_version }}_linux-amd64.tar.gz'
+        dest: '/var/tmp/hugo_extended_{{ hugo_version }}.tar.gz'
+        checksum: '{{ hugo_checksum }}'
+        mode: '0644'
+      when: ('v' ~ hugo_version ~ '-') not in hugo_installed.stdout
+
+    - name: Install hugo
+      ansible.builtin.unarchive:
+        src: '/var/tmp/hugo_extended_{{ hugo_version }}.tar.gz'
+        dest: /usr/local/bin
+        include: hugo
+        remote_src: true
+      when: ('v' ~ hugo_version ~ '-') not in hugo_installed.stdout
+
+    - name: Ensure the webhook user exists before the webroots
+      ansible.builtin.user:
+        name: gunicorn
+        password: '!'
+        home: /srv/webhook_server
+        create_home: false
+        system: true
+
+    # The server clones into these on first start, so they have to exist and
+    # be writable by it. Caddy only reads them.
+    - name: Ensure webroots are present
+      ansible.builtin.file:
+        group: caddy
+        owner: gunicorn
+        path: '{{ item }}'
+        state: directory
+        mode: '0755'
+      loop:
+        - '{{ mikkelcc_webroot }}'
+        - '{{ blog_webroot }}'
+        - '{{ wifir_webroot }}'
+
+    - name: Install webhook server
+      ansible.builtin.include_role:
+        name: webhook_server
+
+- name: Deploy snuletek.org
+  hosts: homeserver
+  become: true
+  tags:
+    - snuletek
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+
+  tasks:
+    - name: Ensure git is installed
+      ansible.builtin.package:
+        name: git
+        state: present
+
+    # A plain checkout on the VM's own disk (it is reproducible from GitHub, so
+    # it needs no NFS and no backup). Upstream has not changed since 2021, so
+    # this only does something when the repo is pushed to again.
+    - name: Get website
+      ansible.builtin.git:
+        repo: https://github.com/Duckle29/snuletek.git
+        dest: '{{ snuletekorg_webroot }}'
+        update: yes
+
+    # PHP 7.4 on the VPS was end of life. The 20 pages are plain includes and
+    # session_start; they lint clean and render without warnings on 8.4.
+    - name: Start php-apache container
+      community.docker.docker_container:
+        name: snuletek-php-apache
+        image: php:8.4-apache
+        pull: yes
+        ports:
+          - '127.0.0.1:{{ portmap.snuletek[0] }}:80'
+        network_mode: bridge
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ snuletekorg_webroot }}:/var/www/html:ro'
+
+        container_default_behavior: 'no_defaults'
+        tty: no
+        read_only: no
+        privileged: no
+        paused: no
+        memory: "0"
+        interactive: no
+        init: no
+        detach: yes
+        auto_remove: no
+
+# The ESP firmware downloads certs.ar over HTTPS and its TLS stack only copes
+# with 512 byte records, so nginx (ssl_buffer_size 512) terminates TLS on its own
+# port; Caddy cannot do that, it only owns the certificate. The bundle is built
+# on the server from Mozilla's CA list (files/esp/get_moz_certs.py, a copy of the
+# one in the wifir firmware repo) and refreshed weekly by espcerts-bundle.timer.
+# Only roots trusted for websites are included (--tls-only): https and mqtts are
+# both server authentication. Every build reports to the Kuma push monitor
+# credentials.kuma.heartbeat.espcerts (heartbeat interval 8 days, since the timer
+# runs weekly); a failed build pushes down, a dead timer misses the heartbeat.
+# Refresh it by hand with: sudo systemctl start espcerts-bundle.service
+- name: Serve the ESP certificate bundle (esp certs)
+  hosts: homeserver
+  become: true
+  tags:
+    - espcerts
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    esp_certs_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ esp_certs_host }}'
+
+  handlers:
+    # A restart (not reload) so this also works if Caddy is stopped.
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+
+    # Caddy owns 80/443; the packaged default site would make nginx fail to bind.
+    - name: Remove the default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Certificate-owning site for Caddy
+      ansible.builtin.template:
+        src: templates/caddy/sites/espcerts.Caddyfile.j2
+        dest: /etc/caddy/sites/espcerts.Caddyfile
+      notify: Reload caddy
+
+    # nginx must not start before Caddy has the certificate.
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.crt'
+        timeout: 120
+
+    # Owned by the login user so the bundle can be updated with a plain scp.
+    - name: Directory for the bundle
+      ansible.builtin.file:
+        path: '{{ esp_certs_dir }}'
+        state: directory
+        owner: '{{ ansible_user | default(ansible_user_id) }}'
+        mode: '0755'
+
+    - name: Tools to build the bundle
+      ansible.builtin.apt:
+        name:
+          - python3
+          - openssl
+          - binutils
+          - curl
+        state: present
+
+    - name: Bundle generator
+      ansible.builtin.copy:
+        src: files/esp/get_moz_certs.py
+        dest: /usr/local/bin/espcerts-bundle
+        mode: '0755'
+
+    - name: Kuma push URL for the bundle build (root-only)
+      ansible.builtin.copy:
+        dest: /etc/default/espcerts
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          KUMA_URL='{{ credentials.kuma.heartbeat.espcerts | default('') }}'
+      no_log: true
+
+    - name: Build and report script
+      ansible.builtin.template:
+        src: templates/espcerts/espcerts-update.j2
+        dest: /usr/local/bin/espcerts-update
+        mode: '0755'
+
+    # Rewrites certs.ar only if the certificates changed, so nginx's ETag (and
+    # the devices' If-None-Match) stays valid between runs.
+    - name: Build certs.ar from Mozilla's CA list
+      ansible.builtin.command:
+        cmd: /usr/local/bin/espcerts-update
+      become_user: '{{ ansible_user | default(ansible_user_id) }}'
+      register: espcerts_bundle
+      changed_when: "'unchanged' not in espcerts_bundle.stdout"
+
+    - name: nginx site
+      ansible.builtin.template:
+        src: templates/nginx/espcerts.conf.j2
+        dest: /etc/nginx/conf.d/espcerts.conf
+      notify: Reload nginx
+
+    - name: Enable and start nginx
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+
+    # Caddy renews the certificate in place; nginx has to be told.
+    - name: Reload nginx when Caddy renews the certificate
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: espcerts-reload.path
+          body: |
+            [Unit]
+            Description=Watch the ESP certificate for renewal
+            [Path]
+            PathChanged={{ esp_certs_caddy_dir }}/{{ esp_certs_host }}.crt
+            Unit=espcerts-reload.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: espcerts-reload.service
+          body: |
+            [Unit]
+            Description=Reload nginx after ESP certificate renewal
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/systemctl reload nginx
+        - name: espcerts-bundle.service
+          body: |
+            [Unit]
+            Description=Rebuild the ESP certificate bundle from Mozilla's CA list
+            After=network-online.target
+            Wants=network-online.target
+            [Service]
+            Type=oneshot
+            User={{ ansible_user | default(ansible_user_id) }}
+            EnvironmentFile=-/etc/default/espcerts
+            ExecStart=/usr/local/bin/espcerts-update
+        - name: espcerts-bundle.timer
+          body: |
+            [Unit]
+            Description=Weekly rebuild of the ESP certificate bundle
+            [Timer]
+            OnCalendar=weekly
+            RandomizedDelaySec=6h
+            Persistent=true
+            [Install]
+            WantedBy=timers.target
+      register: espcerts_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: espcerts-reload.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ espcerts_units is changed }}'
+
+    - name: Enable the weekly bundle rebuild
+      ansible.builtin.systemd:
+        name: espcerts-bundle.timer
+        enabled: true
+        state: started
+        daemon_reload: '{{ espcerts_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.esp_certs[0] | string }}'
+        proto: tcp
+      ignore_errors: true
+
+# esp OTA update server (kstobbe/esp-update-server). The devices fetch firmware
+# from https://esp.mikkel.cc:8445 (basic auth); like the certificate bundle it is
+# served by nginx with 512 byte TLS records, and Caddy only owns the certificate.
+# The firmware binaries and platforms.yml live in the esp-ota_data docker volume.
+- name: Set up esp OTA server
+  hosts: homeserver
+  become: true
+  tags:
+    - esp
+    - ota
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    esp_ota_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ esp_ota_host }}'
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Install nginx and the htpasswd dependency
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - python3-passlib
+        state: present
+
+    - name: Remove the default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Certificate-owning site for Caddy
+      ansible.builtin.template:
+        src: templates/caddy/sites/esp_ota.Caddyfile.j2
+        dest: /etc/caddy/sites/esp_ota.Caddyfile
+      notify: Reload caddy
+
+    # nginx must not start before Caddy has the certificate.
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ esp_ota_caddy_dir }}/{{ esp_ota_host }}.crt'
+        timeout: 120
+
+    - name: Directory for the htpasswd file
+      ansible.builtin.file:
+        path: '{{ esp_ota_dir }}'
+        state: directory
+        mode: '0755'
+
+    - name: Create htpasswd file
+      community.general.htpasswd:
+        path: '{{ esp_ota_dir }}/.htpasswd'
+        name: '{{ item.username }}'
+        password: '{{ item.password }}'
+        owner: root
+        group: www-data
+        mode: '0640'
+      loop: '{{ credentials.esp_ota.users }}'
+      loop_control:
+        label: '{{ item.username }}'
+
+    - name: Create ESP OTA server data volume
+      community.docker.docker_volume:
+        name: esp-ota_data
+        labels:
+          application: "esp-ota"
+          managed_by: "ansible"
+
+    - name: Create ESP OTA container
+      community.docker.docker_container:
+        name: esp_update_server
+        image: kstobbe/esp-update-server:latest
+        ports:
+          - '127.0.0.1:{{ portmap.esp_ota[0] }}:5000'
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'esp-ota_data:/esp-update-server/bin'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+    - name: nginx site
+      ansible.builtin.template:
+        src: templates/nginx/espota.conf.j2
+        dest: /etc/nginx/conf.d/espota.conf
+      notify: Reload nginx
+
+    - name: Enable and start nginx
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+
+    # Caddy renews the certificate in place; nginx has to be told.
+    - name: Reload nginx when Caddy renews the certificate
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: espota-reload.path
+          body: |
+            [Unit]
+            Description=Watch the ESP OTA certificate for renewal
+            [Path]
+            PathChanged={{ esp_ota_caddy_dir }}/{{ esp_ota_host }}.crt
+            Unit=espota-reload.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: espota-reload.service
+          body: |
+            [Unit]
+            Description=Reload nginx after ESP OTA certificate renewal
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/systemctl reload nginx
+      loop_control:
+        label: '{{ item.name }}'
+      register: espota_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: espota-reload.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ espota_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.esp_ota[1] | string }}'
+        proto: tcp
+      ignore_errors: true
+
+# Mosquitto for the devices (MQTTS on 8883) and websocket clients (through Caddy
+# on mqtt.mikkel.cc:443). Caddy owns the certificate (see mqtt.Caddyfile.j2);
+# mosquitto-certs copies it into a directory the container user can read and
+# signals Mosquitto to reload it, triggered by mosquitto-certs.path on renewal.
+# No persistence is configured, so there is no broker state to migrate.
+- name: Install Mosquitto MQTT broker
+  hosts: homeserver
+  become: true
+  tags:
+    - mqtt
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    mqtt_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ mqtt_host }}'
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Restart Mosquitto
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        restart: true
+
+  tasks:
+    - name: Site for the websocket listener and the certificate
+      ansible.builtin.template:
+        src: templates/caddy/sites/mqtt.Caddyfile.j2
+        dest: /etc/caddy/sites/mqtt.Caddyfile
+      notify: Reload caddy
+
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ mqtt_caddy_dir }}/{{ mqtt_host }}.crt'
+        timeout: 120
+
+    # 1883 is the mosquitto user inside the eclipse-mosquitto image.
+    - name: Mosquitto directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        owner: '1883'
+        group: '1883'
+        mode: '0750'
+      loop:
+        - '{{ mosquitto_dir }}'
+        - '{{ mosquitto_dir }}/config'
+        - '{{ mosquitto_dir }}/certs'
+
+    - name: Certificate sync script
+      ansible.builtin.copy:
+        dest: /usr/local/bin/mosquitto-certs
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          # Managed by Ansible (deploy_homeserver.yml, play "Install Mosquitto MQTT broker")
+          set -e
+          src='{{ mqtt_caddy_dir }}'
+          dst='{{ mosquitto_dir }}/certs'
+          install -o 1883 -g 1883 -m 0640 "$src/{{ mqtt_host }}.crt" "$dst/{{ mqtt_host }}.crt"
+          install -o 1883 -g 1883 -m 0600 "$src/{{ mqtt_host }}.key" "$dst/{{ mqtt_host }}.key"
+          # Mosquitto 2 reloads its certificates on SIGHUP; it is not running yet on the first run
+          docker kill -s HUP {{ mqtt_container_name }} 2>/dev/null || true
+
+    - name: Copy the certificate for the first start
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mosquitto-certs
+      changed_when: false
+
+    - name: Config file
+      ansible.builtin.template:
+        src: templates/mosquitto/mosquitto.conf.j2
+        dest: '{{ mosquitto_dir }}/config/mosquitto.conf'
+        owner: '1883'
+        group: '1883'
+        mode: '0640'
+      notify: Restart Mosquitto
+
+    # The password hashes get a fresh salt on every run, so this always reports
+    # changed; Mosquitto rereads the file on SIGHUP, no restart needed.
+    - name: Password file
+      ansible.builtin.template:
+        src: templates/mosquitto/passwd.j2
+        dest: '{{ mosquitto_dir }}/config/passwd'
+        owner: '1883'
+        group: '1883'
+        mode: '0600'
+      no_log: true
+      register: mosquitto_passwd_file
+
+    - name: Start Mosquitto container
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        image: eclipse-mosquitto:2.0
+        ports:
+          - '127.0.0.1:{{ portmap.mosquitto[0] }}:8083'
+          - '{{ portmap.mosquitto[1] }}:8883'
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ mosquitto_dir }}/config:/mosquitto/config:ro'
+          - '{{ mosquitto_dir }}/certs:/mosquitto/certs:ro'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+    - name: Reload the password file
+      ansible.builtin.command:
+        cmd: docker kill -s HUP {{ mqtt_container_name }}
+      when: mosquitto_passwd_file is changed
+      changed_when: false
+
+    - name: Copy the certificate to Mosquitto when Caddy renews it
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: mosquitto-certs.path
+          body: |
+            [Unit]
+            Description=Watch the MQTT certificate for renewal
+            [Path]
+            PathChanged={{ mqtt_caddy_dir }}/{{ mqtt_host }}.crt
+            Unit=mosquitto-certs.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: mosquitto-certs.service
+          body: |
+            [Unit]
+            Description=Copy the renewed MQTT certificate to Mosquitto
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/mosquitto-certs
+      loop_control:
+        label: '{{ item.name }}'
+      register: mosquitto_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: mosquitto-certs.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ mosquitto_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.mosquitto[1] | string }}'
+        proto: tcp
+      ignore_errors: true

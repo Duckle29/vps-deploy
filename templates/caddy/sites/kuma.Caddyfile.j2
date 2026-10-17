@@ -1,0 +1,11 @@
+# {{ansible_managed}}
+
+# Home instance of Uptime Kuma. The external one is watch.mikkel.cc (netcup).
+status2.mikkel.cc {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    encode zstd gzip
+    reverse_proxy http://127.0.0.1:{{portmap.kuma.webui}}
+}

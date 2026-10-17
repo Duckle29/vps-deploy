@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up the Proxmox host configuration to PBS
+Wants=network-online.target
+After=network-online.target pve-cluster.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pve-host-backup
+Nice=10

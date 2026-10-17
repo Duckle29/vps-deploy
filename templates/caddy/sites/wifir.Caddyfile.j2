@@ -1,0 +1,15 @@
+# {{ansible_managed}}
+
+# wifir PWA (static), deployed from GitHub by the webhook server.
+wifir.{{ domain }} {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    root * {{ wifir_webroot }}
+    @git path /.git /.git/*
+    respond @git 404
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+}

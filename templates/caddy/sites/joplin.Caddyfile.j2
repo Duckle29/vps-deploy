@@ -1,0 +1,8 @@
+# {{ansible_managed}}
+
+joplin.mikkel.cc {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    reverse_proxy http://192.168.6.220:{{portmap.joplin[0]}}
+}

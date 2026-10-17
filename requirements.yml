@@ -1,13 +1,3 @@
 ---
-- src: nickjj.acme_sh
-- src: duckle29.dhparam
-- src: nginxinc.nginx
-- src: sopel.sopel
-- src: geerlingguy.nodejs
-- src: geerlingguy.php
-- src: geerlingguy.mysql
-- src: geerlingguy.docker
-- src: aalaesar.install_nextcloud
-- src: jnv.unattended-upgrades
-- src: mrlesmithjr.ansible_bootstrap_python
-- src: dev-sec.ssh-hardening
+roles:
+- name: haxorof.docker_ce

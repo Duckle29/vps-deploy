@@ -1,0 +1,9 @@
+# {{ansible_managed}}
+
+lounge.mikkel.cc, lounge.snuletek.org {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    reverse_proxy http://localhost:{{portmap.thelounge[0]}}
+}

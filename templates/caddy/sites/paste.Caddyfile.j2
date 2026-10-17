@@ -1,0 +1,13 @@
+# {{ansible_managed}}
+
+paste.mikkel.cc {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    # bepasty accepts uploads up to 5 GB (MAX_ALLOWED_FILE_SIZE)
+    request_body {
+        max_size 5GB
+    }
+    reverse_proxy http://127.0.0.1:{{portmap.bepasty[0]}}
+}

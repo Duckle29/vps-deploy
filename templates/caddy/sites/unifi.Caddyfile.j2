@@ -1,0 +1,18 @@
+# {{ansible_managed}}
+
+ubnt.mikkel.cc, unifi.mikkel.cc {
+    reverse_proxy localhost:{{portmap.unifi[0]}} {
+        transport http {
+            tls_insecure_skip_verify
+        }
+        header_up - Authorization
+    }
+}
+
+ubnt.mikkel.cc:80 {
+    @inform path /inform*
+    
+    handle @inform {
+        reverse_proxy http://127.0.0.1:{{portmap.unifi[2]}}
+    }
+}

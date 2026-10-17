@@ -1,0 +1,432 @@
+---
+# External watcher: a small VPS (netcup1, Debian 13, 1 vCPU / 1 GB) that runs
+# Uptime Kuma and watches the homeserver from outside.
+#
+# Run (the sudo user needs a password, so -K; "| cat" because ansible refuses
+# non-blocking stdout):
+#   export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh
+#   ansible-playbook deploy_monitor.yml -K | cat
+#   ansible-playbook deploy_monitor.yml -K --tags ssh        # SSH hardening only
+#   ansible-playbook deploy_monitor.yml -K --tags baseline   # swap, updates, ufw, fail2ban
+#   ansible-playbook deploy_monitor.yml -K --tags kuma       # podman, Caddy, Kuma
+
+- name: Harden SSH on the monitor VPS
+  hosts: monitor
+  become: true
+  tags:
+    - ssh
+    - hardening
+
+  vars:
+    # Every key on the GitHub account becomes a login key, so keep that
+    # account's key list clean.
+    ssh_authorized_keys_url: https://github.com/Duckle29.keys
+    ssh_key_user: "{{ ansible_user }}"
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded
+
+  tasks:
+    - name: Make sure GitHub returns public keys (lockout guard)
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.url', ssh_authorized_keys_url, split_lines=false) is search('^ssh-(ed25519|rsa) ', multiline=True)
+        fail_msg: "{{ ssh_authorized_keys_url }} returned no key; refusing to disable password login"
+
+    - name: Set authorized ssh keys for {{ ssh_key_user }}
+      ansible.posix.authorized_key:
+        user: "{{ ssh_key_user }}"
+        key: "{{ ssh_authorized_keys_url }}"
+        state: present
+        exclusive: false
+
+    # sshd uses the first value it sees and sshd_config includes sshd_config.d
+    # at the top, so the 00- prefix wins over sshd_config and cloud-init files.
+    - name: Write sshd hardening drop-in
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_monitor.yml), local changes will be overwritten
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PubkeyAuthentication yes
+          AuthenticationMethods publickey
+          MaxAuthTries 3
+          LoginGraceTime 30
+          X11Forwarding no
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Reload sshd
+
+    - name: Validate the full sshd configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Apply sshd changes now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Read effective sshd settings
+      ansible.builtin.command: /usr/sbin/sshd -T
+      register: sshd_effective
+      changed_when: false
+
+    - name: Check the drop-in actually won
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in sshd_effective.stdout_lines"
+          - "'passwordauthentication no' in sshd_effective.stdout_lines"
+          - "'kbdinteractiveauthentication no' in sshd_effective.stdout_lines"
+          - "'pubkeyauthentication yes' in sshd_effective.stdout_lines"
+
+    - name: Reconnect to prove key login still works
+      ansible.builtin.meta: reset_connection
+
+    - name: Ping over the new connection
+      ansible.builtin.ping:
+
+
+- name: Baseline (swap, automatic updates, firewall, fail2ban)
+  hosts: monitor
+  become: true
+  tags:
+    - baseline
+
+  vars:
+    swapfile_path: /swapfile
+    swapfile_size: 1G
+    swappiness: 10
+    # Kernel updates need a reboot; do it at night. Everything comes back by
+    # itself (caddy is enabled, kuma is a lingering user unit).
+    auto_reboot_time: '04:30'
+    ssh_port: "{{ ansible_port | default(22) }}"
+
+  handlers:
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+
+  tasks:
+    # --- swap -----------------------------------------------------------
+    - name: Create swapfile
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ swapfile_size }} {{ swapfile_path }}"
+        creates: "{{ swapfile_path }}"
+      register: swapfile_create
+
+    - name: Restrict swapfile permissions
+      ansible.builtin.file:
+        path: "{{ swapfile_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Format swapfile
+      ansible.builtin.command: "/usr/sbin/mkswap {{ swapfile_path }}"
+      when: swapfile_create is changed
+
+    - name: Add swapfile to fstab
+      ansible.posix.mount:
+        src: "{{ swapfile_path }}"
+        path: none
+        fstype: swap
+        opts: sw
+        state: present
+
+    - name: List active swap
+      ansible.builtin.command: /usr/sbin/swapon --show=NAME --noheadings
+      register: active_swap
+      changed_when: false
+
+    - name: Enable swapfile
+      ansible.builtin.command: "/usr/sbin/swapon {{ swapfile_path }}"
+      when: swapfile_path not in active_swap.stdout_lines
+
+    - name: Prefer RAM over swap
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: "{{ swappiness }}"
+        sysctl_file: /etc/sysctl.d/90-swappiness.conf
+        reload: true
+
+    # --- automatic updates ----------------------------------------------
+    - name: Install unattended-upgrades
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        name:
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+
+    - name: Enable daily package list refresh and upgrade
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          // Managed by Ansible (deploy_monitor.yml), local changes will be overwritten
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: Configure unattended-upgrades reboot behaviour
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          // Managed by Ansible (deploy_monitor.yml), local changes will be overwritten
+          Unattended-Upgrade::Automatic-Reboot "true";
+          Unattended-Upgrade::Automatic-Reboot-Time "{{ auto_reboot_time }}";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+          // Adds to the Debian defaults in 50unattended-upgrades
+          Unattended-Upgrade::Origins-Pattern {
+              "origin=cloudsmith/caddy/stable";
+          };
+
+    # --- firewall ---------------------------------------------------------
+    - name: Install ufw
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: Allow inbound services
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "{{ ssh_port }}", proto: tcp, comment: ssh }
+        - { port: '80', proto: tcp, comment: 'caddy http (acme)' }
+        - { port: '443', proto: tcp, comment: 'caddy https' }
+        - { port: '443', proto: udp, comment: 'caddy http/3' }
+
+    - name: Default deny incoming
+      community.general.ufw:
+        default: deny
+        direction: incoming
+
+    - name: Default allow outgoing
+      community.general.ufw:
+        default: allow
+        direction: outgoing
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
+    # --- fail2ban ---------------------------------------------------------
+    # Debian 13 has no auth.log (no rsyslog), so read the journal.
+    - name: Install fail2ban
+      ansible.builtin.apt:
+        name:
+          - fail2ban
+          - python3-systemd
+        state: present
+
+    - name: Configure fail2ban sshd jail
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/10-local.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_monitor.yml), local changes will be overwritten
+          [DEFAULT]
+          backend = systemd
+          bantime = 1h
+          findtime = 10m
+          maxretry = 4
+
+          [sshd]
+          enabled = true
+          port = {{ ssh_port }}
+      notify: Restart fail2ban
+
+    - name: Enable and start fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        enabled: true
+        state: started
+
+
+- name: Install Uptime Kuma (rootless podman) behind Caddy
+  hosts: monitor
+  become: true
+  tags:
+    - kuma
+    - monitor
+
+  vars:
+    kuma_user: kuma
+    # Fully qualified: rootless podman has no default search registry on Debian.
+    kuma_image: 'docker.io/louislam/uptime-kuma:2'
+    kuma_port: 3001                       # bound to 127.0.0.1 only, Caddy fronts it
+    # Admin UI. DNS-only (grey cloud) on purpose: the watcher should not depend
+    # on Cloudflare to be reachable.
+    kuma_admin_domain: 'watch.mikkel.cc'
+    # Optional separate name for a public status page (Cloudflare-proxied; add
+    # it in Kuma under Status Pages -> edit -> Domain Names). Switched off on
+    # 2026-10-14, switched back on 2026-10-17 to have a public page again.
+    kuma_serve_status_domain: true
+    kuma_status_domain: 'status.mikkel.cc'
+    kuma_status_slug: 'default'           # status.mikkel.cc/ redirects to /status/<slug>
+    acme_email: 'mikkel@mikkel.cc'
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: reloaded
+
+    - name: Restart kuma
+      ansible.builtin.systemd_service:
+        name: uptime-kuma
+        scope: user
+        state: restarted
+        daemon_reload: true
+      become_user: "{{ kuma_user }}"
+      environment: "{{ kuma_runtime_env }}"
+
+  tasks:
+    - name: Install podman and helpers
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        name:
+          - podman
+          - uidmap                # newuidmap/newgidmap for rootless
+          - passt                 # pasta, rootless networking
+          - dbus-user-session     # per-user systemd on Debian
+          - acl                   # needed for become to an unprivileged user
+          - python3-debian        # needed by deb822_repository
+          - ca-certificates
+        state: present
+
+    - name: Add Caddy apt repository
+      ansible.builtin.deb822_repository:
+        name: caddy-stable
+        types: deb
+        uris: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+        suites: any-version
+        components: main
+        signed_by: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        state: present
+
+    # Stock Caddy is enough here: certs come from HTTP-01, so no Cloudflare DNS
+    # plugin (and no Go build, which would be tight on 1 GB RAM).
+    - name: Install Caddy
+      ansible.builtin.apt:
+        update_cache: true
+        name: caddy
+        state: present
+
+    - name: Write the Caddyfile
+      ansible.builtin.template:
+        src: templates/kuma/Caddyfile.j2
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        group: root
+        mode: '0644'
+        validate: /usr/bin/caddy validate --adapter caddyfile --config %s
+      notify: Reload caddy
+
+    - name: Enable and start Caddy
+      ansible.builtin.service:
+        name: caddy
+        enabled: true
+        state: started
+
+    # Dedicated unprivileged account: no password, no shell, no ssh key. A
+    # normal (non-system) user so it gets a subuid/subgid range.
+    - name: Create the {{ kuma_user }} user
+      ansible.builtin.user:
+        name: "{{ kuma_user }}"
+        comment: Uptime Kuma (rootless podman)
+        shell: /usr/sbin/nologin
+        password_lock: true
+        create_home: true
+      register: kuma_account
+
+    - name: Check the user has subuid and subgid ranges
+      ansible.builtin.command: "grep -q '^{{ kuma_user }}:' {{ item }}"
+      loop:
+        - /etc/subuid
+        - /etc/subgid
+      changed_when: false
+
+    # Lets the user's systemd instance (and the container) run without a login
+    # session and start at boot.
+    - name: Enable lingering for {{ kuma_user }}
+      ansible.builtin.command:
+        cmd: "loginctl enable-linger {{ kuma_user }}"
+        creates: "/var/lib/systemd/linger/{{ kuma_user }}"
+
+    - name: Wait for the user's systemd bus
+      ansible.builtin.wait_for:
+        path: "/run/user/{{ kuma_account.uid }}/bus"
+        timeout: 30
+
+    - name: Remember the user's runtime environment
+      ansible.builtin.set_fact:
+        kuma_runtime_env:
+          XDG_RUNTIME_DIR: "/run/user/{{ kuma_account.uid }}"
+          DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ kuma_account.uid }}/bus"
+
+    - name: Create the Quadlet directory
+      ansible.builtin.file:
+        path: "{{ kuma_account.home }}/{{ item }}"
+        state: directory
+        owner: "{{ kuma_user }}"
+        group: "{{ kuma_account.group }}"
+        mode: '0755'
+      loop:
+        - .config
+        - .config/containers
+        - .config/containers/systemd
+
+    - name: Deploy the Uptime Kuma Quadlet
+      ansible.builtin.copy:
+        dest: "{{ kuma_account.home }}/.config/containers/systemd/uptime-kuma.container"
+        owner: "{{ kuma_user }}"
+        group: "{{ kuma_account.group }}"
+        mode: '0644'
+        content: |
+          # Managed by Ansible (deploy_monitor.yml), local changes will be overwritten
+          [Unit]
+          Description=Uptime Kuma
+          After=network-online.target
+
+          [Container]
+          Image={{ kuma_image }}
+          ContainerName=uptime-kuma
+          PublishPort=127.0.0.1:{{ kuma_port }}:3001
+          Volume=uptime-kuma-data:/app/data
+
+          [Service]
+          Restart=always
+          TimeoutStartSec=300
+
+          [Install]
+          WantedBy=default.target
+      notify: Restart kuma
+
+    # Quadlet units are generated, so there is no "enable": the [Install]
+    # section above is what makes it start at boot.
+    - name: Start Uptime Kuma
+      ansible.builtin.systemd_service:
+        name: uptime-kuma
+        scope: user
+        state: started
+        daemon_reload: true
+      become_user: "{{ kuma_user }}"
+      environment: "{{ kuma_runtime_env }}"

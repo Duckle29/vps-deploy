@@ -1,0 +1,23 @@
+# {{ansible_managed}}
+
+# Not a real site: Caddy only obtains and renews the certificate that nginx
+# serves for the ESPs on port {{ portmap.esp_certs[0] }} (nginx has to terminate TLS itself to
+# send 512 byte records, which Caddy cannot). See the "esp certs" play.
+{{ esp_certs_host }}:{{ portmap.esp_certs[1] }} {
+	bind 127.0.0.1
+	# preferred_chains only exists inside an explicit "issuer" block, and Caddy
+	# refuses to mix that with tls-level options such as key_type, so the key
+	# type stays at Caddy's default. The email is also an issuer option, so it
+	# lives inside the issuer block too (`tls <email>` would count as implicit).
+	tls {
+		# chain ending at ISRG Root X1: what the ESP trust store holds
+		issuer acme {
+			email mikkel@mikkel.cc
+			dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+			preferred_chains {
+				root_common_name "ISRG Root X1"
+			}
+		}
+	}
+	respond 404
+}

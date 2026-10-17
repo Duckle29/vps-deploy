@@ -1,0 +1,21 @@
+# {{ansible_managed}}
+
+# MQTT over websockets (Mosquitto listener {{ portmap.mosquitto[0] }}). Caddy also owns the certificate that
+# Mosquitto serves on {{ portmap.mosquitto[1] }} (copied by mosquitto-certs, see the "mqtt" play), so the chain
+# is kept short, the ESPs have little RAM for the handshake. The ESP trust store
+# holds ISRG Root X1 and X2; asking for the X2 chain gives leaf + YE1 + Root YE
+# (cross-signed by X2) = 3 certificates, where the X1 chain adds a fourth (the X2
+# cross-signed by X1). Caddy falls back to the default chain if Let's Encrypt does
+# not offer one ending at X2.
+{{ mqtt_host }} {
+	tls {
+		issuer acme {
+			email mikkel@mikkel.cc
+			dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+			preferred_chains {
+				root_common_name "ISRG Root X2"
+			}
+		}
+	}
+	reverse_proxy http://127.0.0.1:{{ portmap.mosquitto[0] }}
+}

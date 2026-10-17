@@ -1,0 +1,13 @@
+# {{ansible_managed}}
+
+{
+	# Requests arriving from Cloudflare's ranges are trusted to say who the real
+	# visitor is. Direct (DNS-only) clients are never in these ranges, so they
+	# cannot spoof a client IP. Sites pass {client_ip} on to their backends.
+	servers {
+		trusted_proxies static {{ cloudflare_ips | join(' ') }}
+		client_ip_headers CF-Connecting-IP X-Forwarded-For
+	}
+}
+
+import "/etc/caddy/sites/*.Caddyfile"

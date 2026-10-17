@@ -5,8 +5,8 @@ prefix = \$
 help_prefix = \$
 
 nick = DumDuckBot
-auth_username = {{ sopel_irc_user }}
-auth_password = {{ sopel_irc_pass }}
+auth_username = {{ credentials.sopel.sopel_irc_user }}
+auth_password = {{ credentials.sopel.sopel_irc_pass }}
 auth_method = sasl
 
 log_raw = false
@@ -23,7 +23,7 @@ owner_account = Duckle
 channels =
     "##botspam"
     "#reprap"
-    "##electronics"
+    #"##electronics"
 nick_blocks =
     mcrib
     ghtx
@@ -34,15 +34,11 @@ host_blocks =
 enable =
     help
     admin
-    clock
-    find_updates
     reload
     currency
-    remind
-    version
     xkcd
     wolfram
-    calc
+    #youtube
 
 [admin]
 hold_ground = false
@@ -51,21 +47,17 @@ auto_accept_invite = true
 [wikipedia]
 default_lang = en
 
-[clock]
-tz = Europe/Copenhagen
-time_format = [%Y-%m-%d - %T %Z]
-
 [wolfram]
-app_id = {{ wolfram_alpha_key }}
+app_id = {{ credentials.sopel.wolfram_alpha_key }}
 max_public = 3
 units = metric
 
 [currency]
-fixer_io_key = {{ fixer_io_key }}
+fixer_io_key = {{ credentials.sopel.fixer_io_key }}
 auto_convert = true
 
 [youtube]
-api_key = {{ youtube_api_key }}
+api_key = {{ credentials.sopel.youtube_api_key }}
 info_items =
   length
   date

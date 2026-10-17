@@ -1,0 +1,15 @@
+# {{ansible_managed}}
+
+{{ shlink_domain }} {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    # One proxy sits in front of Shlink (this Caddy), so TRUSTED_PROXIES=1 there.
+    # {client_ip} is the visitor as Caddy resolved it (CF-Connecting-IP when the
+    # request came through Cloudflare, else the TCP peer), so Shlink gets exactly
+    # one correct address in either case.
+    reverse_proxy http://127.0.0.1:{{portmap.shlink[0]}} {
+        header_up X-Forwarded-For {client_ip}
+    }
+}

@@ -4,3 +4,4 @@ vars/credentials.yml
 inventory.ini
 inventory.yml
 *.pyc
+.ansible/

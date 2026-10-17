@@ -1,0 +1,395 @@
+# The Proxmox VE hypervisor (proxmox0, 192.168.6.2) and its backup pipeline.
+#
+# MANAGED by this file
+#   Play 1, "Proxmox Backup Server container" (tag pbs)
+#   - the rpool/pbs dataset (400G quota, top-level owner uid 100034 = backup in
+#     the unprivileged container)
+#   - CT 105 itself, but ONLY when it does not exist (template download, pct
+#     create, start): an existing container is never reconfigured here, except
+#     the settings in guest_settings below
+#   - the PBS install, via files/proxmox/pbs-setup.sh run inside the CT: repo,
+#     datastore "main" (GC sat 03:00), users admin@pbs and pve@pbs with the
+#     pvesm token, ACLs, prune job (7d/4w/6m, 03:00), verify job (sun 04:00).
+#     Verified 2026-10-13: the live PBS config has nothing beyond this (no UI-only
+#     state: no sync jobs, remotes, notification targets, traffic control, TFA)
+#   - the pbs-main storage entry: created/updated from the generated token
+#     whenever the install runs (new CT, or -e pbs_force_setup=true, which
+#     rotates the token); otherwise only checked to exist
+#   Play 2, "Configure the Proxmox host" (tag borg)
+#   - the four backup scripts (/usr/local/sbin), six systemd units/timers,
+#     /etc/default/* Uptime Kuma push URLs (from credentials.yml), the vzdump
+#     hook line in /etc/vzdump.conf
+#   - the vzdump job nightly-vms: CREATED if missing, never updated; edit it in
+#     PVE and keep the values in this file in sync
+#   - the NFS automounts of the TrueNAS snapshot clones (fstab block, /mnt/nas)
+#   - guest_settings on VM 101/103 and CT 105: startup order, onboot, guest agent,
+#     CT nesting and the /rpool/pbs mountpoint (drift is corrected)
+#
+# NOT managed (done by hand): see docs/proxmox0.md, the record of the host, the
+# NAS VM, the TrueNAS cron/shares/snapshot tasks, the Hetzner accounts, the UPS
+# and the PVE 9 upgrade notes. Add anything undocumented you find there.
+#
+# Run (root login over the gpg-agent key):
+#   export SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh
+#   ansible-playbook proxmox.yml --check --diff
+#   ansible-playbook proxmox.yml
+# (append "| cat" if ansible complains about non-blocking stdout, which happens
+# when stdout is a pipe from an automated tool)
+
+# PBS container CT 105: dataset, container, PBS install, pbs-main storage entry.
+# Creates something only when CT 105 does not exist yet (or with
+# -e pbs_force_setup=true, which RE-RUNS pbs-setup.sh: that rotates the pvesm
+# API token, so pbs-main is re-pointed at the new one in the same run).
+- name: Proxmox Backup Server container
+  hosts: proxmox
+  become: false
+  tags:
+    - pbs
+
+  vars:
+    pbs_ctid: 105
+    pbs_template: debian-13-standard_13.6-1_amd64.tar.zst
+    pbs_ip: 192.168.6.205
+    # UniFi has a static DHCP lease for this MAC, keep it when recreating.
+    pbs_mac: "BC:24:11:BF:FC:3D"
+    pbs_storage: pbs-main
+    # backup (uid 34) inside the unprivileged container
+    pbs_host_uid: 100034
+
+  tasks:
+    - name: Look for the container
+      ansible.builtin.stat:
+        path: "/etc/pve/lxc/{{ pbs_ctid }}.conf"
+      register: pbs_ct
+
+    - name: Look for the datastore dataset
+      ansible.builtin.command: zfs list -H -o name rpool/pbs
+      register: pbs_ds
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Create the datastore dataset
+      ansible.builtin.command: >-
+        zfs create -o quota=400G -o compression=on -o atime=off rpool/pbs
+      when: pbs_ds.rc != 0
+
+    # Only the top level: the contents are written by PBS itself.
+    - name: Let the container's backup user own the datastore directory
+      ansible.builtin.file:
+        path: /rpool/pbs
+        owner: "{{ pbs_host_uid }}"
+        group: "{{ pbs_host_uid }}"
+        mode: '0755'
+
+    - name: Check for the Debian 13 template
+      ansible.builtin.shell: pveam list local | grep -q '{{ pbs_template }}'
+      register: pbs_tmpl
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: not pbs_ct.stat.exists
+
+    - name: Download the Debian 13 template
+      ansible.builtin.command: "pveam download local {{ pbs_template }}"
+      when: not pbs_ct.stat.exists and pbs_tmpl.rc != 0
+
+    - name: Create the container
+      ansible.builtin.command: >-
+        pct create {{ pbs_ctid }} local:vztmpl/{{ pbs_template }}
+        --hostname pbs --ostype debian --unprivileged 1
+        --cores 2 --memory 2048 --swap 512 --rootfs local-zfs:16
+        --features nesting=1
+        --net0 name=eth0,bridge=vmbr0,hwaddr={{ pbs_mac }},ip={{ pbs_ip }}/24,gw=192.168.6.1
+        --mp0 /rpool/pbs,mp=/datastore
+        --onboot 1 --startup order=3,up=30
+      when: not pbs_ct.stat.exists
+      register: pbs_created
+
+    - name: Run the PBS install now?
+      ansible.builtin.set_fact:
+        pbs_run_setup: "{{ pbs_created is changed or (pbs_force_setup | default(false) | bool) }}"
+
+    - name: Start the container
+      ansible.builtin.shell: >-
+        pct status {{ pbs_ctid }} | grep -q running || pct start {{ pbs_ctid }}
+      register: pbs_started
+      changed_when: "'pct start' in pbs_started.cmd and pbs_started.rc == 0 and pbs_run_setup"
+      when: pbs_run_setup
+
+    - name: Wait for the container network
+      ansible.builtin.command: pct exec {{ pbs_ctid }} -- getent hosts download.proxmox.com
+      register: pbs_net
+      until: pbs_net.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+      when: pbs_run_setup
+
+    - name: Install the PBS setup script on the host
+      ansible.builtin.copy:
+        src: files/proxmox/pbs-setup.sh
+        dest: /root/pbs-setup.sh
+        owner: root
+        group: root
+        mode: '0700'
+      when: pbs_run_setup
+
+    - name: Push and run the PBS setup in the container
+      ansible.builtin.shell: |
+        set -e
+        pct push {{ pbs_ctid }} /root/pbs-setup.sh /root/pbs-setup.sh --perms 0700
+        pct exec {{ pbs_ctid }} -- bash /root/pbs-setup.sh
+      register: pbs_setup
+      when: pbs_run_setup
+
+    - name: Show the setup summary
+      ansible.builtin.debug:
+        var: pbs_setup.stdout_lines
+      when: pbs_run_setup
+
+    # The token goes from the container's root-only file into the storage entry
+    # (command line, briefly visible to root on this host), then the file is
+    # removed so the secret rests only in /etc/pve/priv/storage.
+    - name: Read the API token and certificate fingerprint
+      ansible.builtin.shell: |
+        set -e
+        printf '%s\n' "$(pct exec {{ pbs_ctid }} -- cat /root/pvesm.token)"
+        pct exec {{ pbs_ctid }} -- proxmox-backup-manager cert info | grep -i fingerprint | awk '{print $NF}'
+      register: pbs_creds
+      changed_when: false
+      no_log: true
+      when: pbs_run_setup
+
+    - name: Look for the storage entry
+      ansible.builtin.command: "pvesm status --storage {{ pbs_storage }}"
+      register: pbs_sd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Add or update the storage entry
+      ansible.builtin.shell: |
+        set -e
+        tok='{{ pbs_creds.stdout_lines[0] }}'
+        fp='{{ pbs_creds.stdout_lines[1] }}'
+        if pvesm status --storage {{ pbs_storage }} >/dev/null 2>&1; then
+          pvesm set {{ pbs_storage }} --password "$tok" --fingerprint "$fp"
+        else
+          pvesm add pbs {{ pbs_storage }} --server {{ pbs_ip }} --datastore main \
+            --username 'pve@pbs!pvesm' --password "$tok" --fingerprint "$fp" --content backup
+        fi
+        pct exec {{ pbs_ctid }} -- rm -f /root/pvesm.token
+      no_log: true
+      when: pbs_run_setup
+
+    - name: The storage entry must exist
+      ansible.builtin.command: "pvesm status --storage {{ pbs_storage }}"
+      changed_when: false
+      check_mode: false
+
+- name: Configure the Proxmox host
+  hosts: proxmox
+  become: false
+  tags:
+    - borg
+
+  vars_files:
+    - vars/credentials.yml
+
+  vars:
+    nas_host: 192.168.6.220
+    nas_clone_datasets: [microservices, mikkel, haosBackups]
+    host_scripts:
+      - borg-nas-offsite
+      - borg-pbs-offsite
+      - host-health
+      - pve-host-backup
+      - vzdump-kuma-hook
+    host_units:
+      - borg-nas-offsite.service
+      - borg-nas-offsite.timer
+      - borg-pbs-offsite.service
+      - borg-pbs-offsite.timer
+      - host-health.service
+      - host-health.timer
+      - pve-host-backup.service
+      - pve-host-backup.timer
+    timers: [borg-nas-offsite, borg-pbs-offsite, host-health, pve-host-backup]
+    # /etc/default/<name> -> OFFSITE_REPO for the borg jobs (Storage Box account
+    # from credentials.yml; the scripts in git carry no account names)
+    offsite_repo:
+      borg-nas-offsite: "ssh://{{ credentials.borg.storage_box.user_nas }}@{{ credentials.borg.storage_box.host }}:23/./nas-data"
+      borg-pbs-offsite: "ssh://{{ credentials.borg.storage_box.user_pbs }}@{{ credentials.borg.storage_box.host }}:23/./pbs-datastore"
+    # /etc/default/<name> -> Uptime Kuma push monitor (external Kuma)
+    kuma_env:
+      pve-host-backup: "{{ credentials.kuma.heartbeat.host_config }}"
+      vzdump-kuma: "{{ credentials.kuma.heartbeat.pbs_vms }}"
+      borg-pbs-offsite: "{{ credentials.kuma.heartbeat.borg_pbs }}"
+      borg-nas-offsite: "{{ credentials.kuma.heartbeat.borg_nas }}"
+
+    # qm/pct config key: value. Startup order = boot sequence after a host reboot.
+    guest_settings:
+      - {type: qm, id: 103, key: startup, value: "order=1,up=120"}
+      - {type: qm, id: 103, key: onboot, value: "1"}
+      - {type: qm, id: 103, key: agent, value: "1"}
+      - {type: qm, id: 101, key: startup, value: "order=2"}
+      - {type: qm, id: 101, key: onboot, value: "1"}
+      - {type: qm, id: 101, key: agent, value: "1"}
+      - {type: pct, id: 105, key: startup, value: "order=3,up=30"}
+      - {type: pct, id: 105, key: onboot, value: "1"}
+      - {type: pct, id: 105, key: features, value: "nesting=1"}
+      - {type: pct, id: 105, key: mp0, value: "/rpool/pbs,mp=/datastore"}
+
+  tasks:
+    - name: Compare guest settings with the wanted values
+      ansible.builtin.shell: >-
+        {{ item.type }} config {{ item.id }} | grep -qxF '{{ item.key }}: {{ item.value }}'
+        && echo ok || echo differs
+      register: guest_diff
+      changed_when: guest_diff.stdout == 'differs'
+      check_mode: false
+      loop: "{{ guest_settings }}"
+      loop_control:
+        label: "{{ item.type }} {{ item.id }} {{ item.key }}"
+
+    # mp0/features/agent only take effect on the next guest restart; they match
+    # already, so this normally does nothing.
+    - name: Set the guest settings that differ
+      ansible.builtin.command: "{{ item.item.type }} set {{ item.item.id }} --{{ item.item.key }} {{ item.item.value }}"
+      when: item.stdout == 'differs'
+      loop: "{{ guest_diff.results }}"
+      loop_control:
+        label: "{{ item.item.type }} {{ item.item.id }} {{ item.item.key }}"
+
+    # The entry holds the PBS API token secret, which is not in git; only check.
+    - name: Check the PBS storage entry exists
+      ansible.builtin.command: pvesm status --storage pbs-main
+      changed_when: false
+      check_mode: false
+
+    # The TrueNAS cron job "snapshot-clone" (03:15) clones the newest snapshot of
+    # each dataset to HDDs/offsite-clones/<ds>, shared read-only to this host.
+    - name: Create the NAS mount points
+      ansible.builtin.file:
+        path: "/mnt/nas/{{ item }}"
+        state: directory
+      loop: "{{ nas_clone_datasets }}"
+
+    - name: Mount the NAS snapshot clones on demand
+      ansible.builtin.blockinfile:
+        path: /etc/fstab
+        marker: "# borg-nas-offsite ({mark})"
+        marker_begin: begin
+        marker_end: end
+        block: |
+          {% for ds in nas_clone_datasets %}
+          {{ nas_host }}:/mnt/HDDs/offsite-clones/{{ ds }} /mnt/nas/{{ ds }} nfs ro,nfsvers=4,soft,timeo=150,retrans=3,_netdev,nofail,noauto,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.mount-timeout=60 0 0
+          {% endfor %}
+      register: nas_fstab
+
+    - name: Reload systemd and restart the NAS automounts
+      ansible.builtin.shell: |
+        systemctl daemon-reload
+        for ds in {{ nas_clone_datasets | join(' ') }}; do
+          systemctl stop mnt-nas-$ds.mount 2>/dev/null
+          systemctl restart mnt-nas-$ds.automount
+        done
+      when: nas_fstab.changed
+
+    - name: Install the backup scripts
+      ansible.builtin.copy:
+        src: "files/proxmox/{{ item }}"
+        dest: "/usr/local/sbin/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ host_scripts }}"
+
+    # Hooks so the UPS monitor flips the moment power drops or returns.
+    - name: Install the apcupsd event hooks
+      ansible.builtin.copy:
+        src: "files/proxmox/apcupsd/{{ item }}"
+        dest: "/etc/apcupsd/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop: [onbattery, offbattery]
+
+    - name: Install the systemd units
+      ansible.builtin.copy:
+        src: "files/proxmox/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ host_units }}"
+      notify: Reload systemd
+
+    # Quoted because the push URLs contain & when they carry query parameters.
+    - name: Write the Kuma push URLs and borg repo URLs
+      ansible.builtin.copy:
+        dest: "/etc/default/{{ item.key }}"
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          KUMA_PUSH_URL='{{ item.value }}'
+          {% if item.key in offsite_repo %}
+          OFFSITE_REPO='{{ offsite_repo[item.key] }}'
+          {% endif %}
+      loop: "{{ kuma_env | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      diff: false
+      no_log: true
+
+    # Only the monitors that have a token in credentials.yml are pushed to.
+    - name: Write the host-health push URLs
+      ansible.builtin.copy:
+        dest: /etc/default/host-health
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          KUMA_UPS_URL='{{ credentials.kuma.heartbeat.ups | default('') }}'
+          KUMA_ZFS_URL='{{ credentials.kuma.heartbeat.zfs | default('') }}'
+      diff: false
+      no_log: true
+
+    - name: Report vzdump results to Kuma
+      ansible.builtin.lineinfile:
+        path: /etc/vzdump.conf
+        regexp: '^script:'
+        line: 'script: /usr/local/sbin/vzdump-kuma-hook'
+
+    - name: Look for the nightly VM backup job
+      ansible.builtin.command: pvesh get /cluster/backup/nightly-vms --output-format json
+      register: nightly_job
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # Created once; an existing job is left alone (edit it in the PVE UI or with
+    # pvesh set, then keep these values in sync).
+    - name: Create the nightly VM backup job
+      ansible.builtin.command: >-
+        pvesh create /cluster/backup --id nightly-vms --schedule 01:30
+        --storage pbs-main --mode snapshot --vmid 101,103,105
+        --prune-backups keep-all=1 --notes-template '{{ '{{guestname}}' }}' --enabled 1
+      when: nightly_job.rc != 0
+
+    - name: Enable and start the timers
+      ansible.builtin.systemd_service:
+        name: "{{ item }}.timer"
+        enabled: true
+        state: started
+        daemon_reload: true
+      loop: "{{ timers }}"
+      # A timer unit that is new in this run does not exist yet in check mode.
+      ignore_errors: "{{ ansible_check_mode }}"
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd_service:
+        daemon_reload: true

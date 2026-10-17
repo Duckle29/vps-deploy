@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Off-site copy of the NAS datasets to the Hetzner Storage Box (sub-account nas).
+set -uo pipefail
+# shellcheck disable=SC1091
+. /etc/default/borg-nas-offsite          # OFFSITE_REPO, KUMA_PUSH_URL, optional UPLOAD_RATE_KIB
+
+export BORG_PASSCOMMAND='cat /root/.config/borg/nas-data.pass'
+export BORG_RSH='ssh -p 23 -i /root/.ssh/borg_nas_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes'
+export BORG_REMOTE_PATH=borg-1.4
+export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
+REPO="${OFFSITE_REPO:?OFFSITE_REPO is not set in the /etc/default file}"
+RATE="${UPLOAD_RATE_KIB:-74000}"
+DATASETS=(microservices mikkel haosBackups)
+
+exec 9>/run/borg-nas-offsite.lock
+flock -n 9 || { echo "already running"; exit 0; }
+
+push() {
+  [ -n "${KUMA_PUSH_URL:-}" ] || return 0
+  curl -fsS -m 10 --get --data-urlencode "status=$1" --data-urlencode "msg=$2" \
+    "${KUMA_PUSH_URL%%\?*}" >/dev/null 2>&1 || true
+}
+
+overall=0
+summary=()
+for ds in "${DATASETS[@]}"; do
+  base="/mnt/nas/$ds"
+  # TrueNAS clones the newest auto-* snapshot of each dataset into
+  # HDDs/offsite-clones/<ds> at 03:15 and shares that (a snapshot itself is not
+  # readable over NFS), so this is a consistent point in time.
+  src="$base"; kind="clone"
+  if [ -z "$(ls -A "$src" 2>/dev/null)" ]; then
+    echo "!! $ds: source empty or unreachable ($src), skipping"
+    summary+=("$ds: UNREACHABLE"); [ "$overall" -lt 2 ] && overall=2
+    continue
+  fi
+  excludes=(--exclude 'sh:**/lost+found' --exclude 'sh:**/.recycle' --exclude 'sh:**/*.tmp')
+  if [ "$ds" = microservices ]; then
+    # regenerable data: Immich thumbnails/transcodes, Nextcloud previews
+    excludes+=(--exclude 'sh:**/immich/thumbs' --exclude 'sh:**/immich/encoded-video'
+               --exclude 'sh:**/appdata_*/preview' --exclude 'sh:**/updater-*'
+               --exclude 'sh:pelican')
+  fi
+  echo "== $ds ($kind)"
+  ( cd "$src" && borg create --stats --compression lz4 --checkpoint-interval 600 --files-cache ctime,size \
+      --upload-ratelimit "$RATE" "${excludes[@]}" \
+      "$REPO::$ds-{utcnow:%Y-%m-%dT%H:%M:%S}" . )
+  rc=$?
+  case "$rc" in
+    0) summary+=("$ds: ok ($kind)") ;;
+    1) summary+=("$ds: WARNING rc=1 ($kind)"); [ "$overall" -lt 1 ] && overall=1 ;;
+    *) summary+=("$ds: FAILED rc=$rc"); overall=2 ;;
+  esac
+done
+
+msg="$(IFS='; '; echo "${summary[*]}")"
+echo "== summary: $msg"
+if [ "$overall" -eq 0 ]; then push up "$msg"; else push down "$msg"; fi
+exit "$overall"

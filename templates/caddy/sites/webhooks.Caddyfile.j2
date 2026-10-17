@@ -1,0 +1,17 @@
+# {{ansible_managed}}
+
+# GitHub push webhooks. The app checks GitHub's source ranges and the HMAC
+# signature; it reads the client from the last X-Forwarded-For entry, so pass
+# exactly the address Caddy resolved.
+webhooks.{{ domain }} {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    request_body {
+        max_size 5MB
+    }
+    reverse_proxy http://127.0.0.1:{{ portmap.webhook_serv[0] }} {
+        header_up X-Forwarded-For {client_ip}
+    }
+}

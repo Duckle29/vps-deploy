@@ -1,0 +1,16 @@
+# {{ansible_managed}}
+
+snuletek.org {
+    log
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+    # The checkout is served as is, .git included, so keep that part private.
+    @git path /.git /.git/*
+    respond @git 404
+
+    request_body {
+        max_size 10MB
+    }
+    reverse_proxy http://127.0.0.1:{{portmap.snuletek[0]}}
+}
