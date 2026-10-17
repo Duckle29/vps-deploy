@@ -116,22 +116,24 @@ host or the power going away; a missing heartbeat here is the alarm.
 - [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
       (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
-### ESP certificate bundle (play `espcerts`, not deployed yet)
+### ESP certificate bundle (play `espcerts`, deployed)
 
 - [ ] Push monitor `espcerts` on the external Kuma (token in
       `credentials.kuma.heartbeat.espcerts`), heartbeat interval 8 days (the build
       runs weekly via `espcerts-bundle.timer`), retries 0. A failed build pushes
       down with the reason; a dead timer misses the heartbeat.
-- [ ] TCP `espcerts.mikkel.cc:8443` on the external Kuma (cert renewal is done by
+- [x] TCP `espcerts.mikkel.cc:8443` on the external Kuma (cert renewal is done by
       Caddy, an expired or missing cert shows as an HTTPS failure)
 
-### After the esp / mqtt migration
+### esp OTA and MQTT (deployed 2026-10-17, DNS on the homeserver)
 
-- [ ] esp OTA: TCP `esp.mikkel.cc:443`
+- [ ] esp OTA: TCP `esp.mikkel.cc:8445` (nginx, 512 B records; 8444 belongs to UniFi OS)
 - [ ] MQTT TLS: TCP `mqtt.mikkel.cc:8883`, 60 s
 - [ ] ESP chain check: push monitor fed by a timer on netcup that runs
-      `openssl s_client -verify_return_error` against `esp.mikkel.cc` with ISRG Root
-      X1 pinned (the chain must end there; the cross-signed Root YR expires Sep 2032)
+      `openssl s_client -verify_return_error` against `esp.mikkel.cc:8445` with ISRG
+      Root X1 pinned (the chain must end there; the cross-signed Root YR expires Sep
+      2032). `mqtt.mikkel.cc:8883` serves the shorter ISRG Root X2 chain (leaf, YE1,
+      Root YE), which the bundle also trusts: check it against X2 instead.
 
 ## Skipped on purpose
 
