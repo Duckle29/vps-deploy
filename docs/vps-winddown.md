@@ -38,8 +38,7 @@ Read-only survey done without root, so database contents were not inspected.
 ## Then
 
 - [ ] Delete the stale DNS records (and `contabo1` itself last)
-- [ ] Remove the `[vps]` plays that are no longer used from `deploy.yml`, or retire
-      the file
+- [x] Removed `deploy.yml` (all plays were `[vps]`) and `templates/nginx/sites/` on 2026-10-17
 - [ ] Cancel the contract
 
 ## Decisions (2026-10-17)
