@@ -275,9 +275,9 @@
     # on Cloudflare to be reachable.
     kuma_admin_domain: 'watch.mikkel.cc'
     # Optional separate name for a public status page (Cloudflare-proxied; add
-    # it in Kuma under Status Pages -> edit -> Domain Names). Unused since
-    # 2026-10-14: everything is served on the admin name above.
-    kuma_serve_status_domain: false
+    # it in Kuma under Status Pages -> edit -> Domain Names). Switched off on
+    # 2026-10-14, switched back on 2026-10-17 to have a public page again.
+    kuma_serve_status_domain: true
     kuma_status_domain: 'status.mikkel.cc'
     acme_email: 'mikkel@mikkel.cc'
 
