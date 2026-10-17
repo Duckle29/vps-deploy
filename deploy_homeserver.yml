@@ -1670,6 +1670,7 @@
         detach: true
 
     - name: Start the server
+      register: inventree_server
       community.docker.docker_container:
         name: inventree-server
         image: 'inventree/inventree:{{ inventree_version }}'
@@ -1709,6 +1710,32 @@
 
         container_default_behavior: 'no_defaults'
         detach: true
+
+    # InvenTree's docker image does not do this itself: `invoke update` runs the
+    # migrations, collects the static files and the web frontend (without them the
+    # UI shows INVE-E1) and creates the admin user from INVENTREE_ADMIN_*. It has
+    # to be repeated after every version change.
+    - name: Wait for the server to be healthy
+      community.docker.docker_container_info:
+        name: inventree-server
+      register: inventree_health
+      until: inventree_health.container.State.Health.Status | default('') == 'healthy'
+      retries: 30
+      delay: 10
+
+    - name: Look for collected static files
+      ansible.builtin.find:
+        paths: '{{ inventree_dir }}/data/static'
+        file_type: any
+      register: inventree_static
+
+    - name: Run the InvenTree update
+      community.docker.docker_container_exec:
+        container: inventree-server
+        command: invoke update
+      when: inventree_server is changed or inventree_static.matched == 0
+      register: inventree_update
+      changed_when: true
 
     - name: Start the proxy
       community.docker.docker_container:
