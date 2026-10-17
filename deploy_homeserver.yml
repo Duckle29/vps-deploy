@@ -1557,6 +1557,9 @@
     inventree_postgres_version: '17'
     inventree_redis_version: '7-alpine'
     inventree_caddy_version: 'alpine'
+    # Migadu: implicit TLS on 465 (STARTTLS on 587 would be EMAIL_TLS instead).
+    inventree_smtp_host: 'smtp.migadu.com'
+    inventree_smtp_port: '465'
     # Shared by the server and the worker, same as InvenTree's .env file.
     inventree_env:
       INVENTREE_SITE_URL: 'https://{{ inventree_domain }}'
@@ -1581,6 +1584,13 @@
       INVENTREE_CACHE_HOST: 'inventree-cache'
       INVENTREE_CACHE_PORT: '6379'
       INVENTREE_GUNICORN_TIMEOUT: '90'
+      INVENTREE_EMAIL_HOST: '{{ inventree_smtp_host }}'
+      INVENTREE_EMAIL_PORT: '{{ inventree_smtp_port }}'
+      INVENTREE_EMAIL_SSL: 'True'
+      INVENTREE_EMAIL_TLS: 'False'
+      INVENTREE_EMAIL_USERNAME: '{{ credentials.inventree.smtp.username | string }}'
+      INVENTREE_EMAIL_PASSWORD: '{{ credentials.inventree.smtp.password | string }}'
+      INVENTREE_EMAIL_SENDER: '{{ credentials.inventree.smtp.sender | string }}'
 
   tasks:
     # An empty value is null in YAML, which `| string` turns into the text "None".
@@ -1590,7 +1600,10 @@
           - credentials.inventree.admin_pass | default('', true) | string | length > 0
           - credentials.inventree.admin_email | default('', true) | string | length > 0
           - credentials.inventree.database_pass | default('', true) | string | length > 0
-        fail_msg: 'Fill in credentials.inventree.{admin_pass,admin_email,database_pass} in vars/credentials.yml'
+          - credentials.inventree.smtp.username | default('', true) | string | length > 0
+          - credentials.inventree.smtp.password | default('', true) | string | length > 0
+          - credentials.inventree.smtp.sender | default('', true) | string | length > 0
+        fail_msg: 'Fill in credentials.inventree.{admin_pass,admin_email,database_pass,smtp.{username,password,sender}} in vars/credentials.yml'
         quiet: true
 
     - name: Create the InvenTree network
