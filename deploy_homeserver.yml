@@ -741,6 +741,7 @@
       - unifi.mikkel.cc
       - ubnt.mikkel.cc
       - joplin.mikkel.cc
+      - inventree.mikkel.cc
 
   tasks:
     # SQLite: the data volume stays on the VM's local disk (Kuma does not
