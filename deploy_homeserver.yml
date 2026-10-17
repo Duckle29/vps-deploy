@@ -1232,3 +1232,311 @@
         port: '{{ portmap.esp_certs[0] | string }}'
         proto: tcp
       ignore_errors: true
+
+# esp OTA update server (kstobbe/esp-update-server). The devices fetch firmware
+# from https://espota.mikkel.cc:8444 (basic auth); like the certificate bundle it is
+# served by nginx with 512 byte TLS records, and Caddy only owns the certificate.
+# The firmware binaries and platforms.yml live in the esp-ota_data docker volume.
+- name: Set up esp OTA server
+  hosts: homeserver
+  become: true
+  tags:
+    - esp
+    - ota
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    esp_ota_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ esp_ota_host }}'
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Install nginx and the htpasswd dependency
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - python3-passlib
+        state: present
+
+    - name: Remove the default nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Certificate-owning site for Caddy
+      ansible.builtin.template:
+        src: templates/caddy/sites/esp_ota.Caddyfile.j2
+        dest: /etc/caddy/sites/esp_ota.Caddyfile
+      notify: Reload caddy
+
+    # nginx must not start before Caddy has the certificate.
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ esp_ota_caddy_dir }}/{{ esp_ota_host }}.crt'
+        timeout: 120
+
+    - name: Directory for the htpasswd file
+      ansible.builtin.file:
+        path: '{{ esp_ota_dir }}'
+        state: directory
+        mode: '0755'
+
+    - name: Create htpasswd file
+      community.general.htpasswd:
+        path: '{{ esp_ota_dir }}/.htpasswd'
+        name: '{{ item.username }}'
+        password: '{{ item.password }}'
+        owner: root
+        group: www-data
+        mode: '0640'
+      loop: '{{ credentials.esp_ota.users }}'
+      loop_control:
+        label: '{{ item.username }}'
+
+    - name: Create ESP OTA server data volume
+      community.docker.docker_volume:
+        name: esp-ota_data
+        labels:
+          application: "esp-ota"
+          managed_by: "ansible"
+
+    - name: Create ESP OTA container
+      community.docker.docker_container:
+        name: esp_update_server
+        image: kstobbe/esp-update-server:latest
+        ports:
+          - '127.0.0.1:{{ portmap.esp_ota[0] }}:5000'
+        restart_policy: 'unless-stopped'
+        volumes:
+          - 'esp-ota_data:/esp-update-server/bin'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+    - name: nginx site
+      ansible.builtin.template:
+        src: templates/nginx/espota.conf.j2
+        dest: /etc/nginx/conf.d/espota.conf
+      notify: Reload nginx
+
+    - name: Enable and start nginx
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+
+    # Caddy renews the certificate in place; nginx has to be told.
+    - name: Reload nginx when Caddy renews the certificate
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: espota-reload.path
+          body: |
+            [Unit]
+            Description=Watch the ESP OTA certificate for renewal
+            [Path]
+            PathChanged={{ esp_ota_caddy_dir }}/{{ esp_ota_host }}.crt
+            Unit=espota-reload.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: espota-reload.service
+          body: |
+            [Unit]
+            Description=Reload nginx after ESP OTA certificate renewal
+            [Service]
+            Type=oneshot
+            ExecStart=/bin/systemctl reload nginx
+      loop_control:
+        label: '{{ item.name }}'
+      register: espota_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: espota-reload.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ espota_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.esp_ota[1] | string }}'
+        proto: tcp
+      ignore_errors: true
+
+# Mosquitto for the devices (MQTTS on 8883) and websocket clients (through Caddy
+# on mqtt.mikkel.cc:443). Caddy owns the certificate (see mqtt.Caddyfile.j2);
+# mosquitto-certs copies it into a directory the container user can read and
+# signals Mosquitto to reload it, triggered by mosquitto-certs.path on renewal.
+# No persistence is configured, so there is no broker state to migrate.
+- name: Install Mosquitto MQTT broker
+  hosts: homeserver
+  become: true
+  tags:
+    - mqtt
+
+  vars_files:
+    - vars/shared_vars.yml
+    - vars/port_usage.yml
+    - vars/credentials.yml
+
+  vars:
+    mqtt_caddy_dir: '/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{{ mqtt_host }}'
+
+  handlers:
+    - name: Reload caddy
+      ansible.builtin.service:
+        name: caddy
+        state: restarted
+
+    - name: Restart Mosquitto
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        restart: true
+
+  tasks:
+    - name: Site for the websocket listener and the certificate
+      ansible.builtin.template:
+        src: templates/caddy/sites/mqtt.Caddyfile.j2
+        dest: /etc/caddy/sites/mqtt.Caddyfile
+      notify: Reload caddy
+
+    - name: Apply the Caddy config now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait for Caddy to obtain the certificate
+      ansible.builtin.wait_for:
+        path: '{{ mqtt_caddy_dir }}/{{ mqtt_host }}.crt'
+        timeout: 120
+
+    # 1883 is the mosquitto user inside the eclipse-mosquitto image.
+    - name: Mosquitto directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        owner: '1883'
+        group: '1883'
+        mode: '0750'
+      loop:
+        - '{{ mosquitto_dir }}'
+        - '{{ mosquitto_dir }}/config'
+        - '{{ mosquitto_dir }}/certs'
+
+    - name: Certificate sync script
+      ansible.builtin.copy:
+        dest: /usr/local/bin/mosquitto-certs
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          # {{ ansible_managed }}
+          set -e
+          src='{{ mqtt_caddy_dir }}'
+          dst='{{ mosquitto_dir }}/certs'
+          install -o 1883 -g 1883 -m 0640 "$src/{{ mqtt_host }}.crt" "$dst/{{ mqtt_host }}.crt"
+          install -o 1883 -g 1883 -m 0600 "$src/{{ mqtt_host }}.key" "$dst/{{ mqtt_host }}.key"
+          # Mosquitto 2 reloads its certificates on SIGHUP; it is not running yet on the first run
+          docker kill -s HUP {{ mqtt_container_name }} 2>/dev/null || true
+
+    - name: Copy the certificate for the first start
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mosquitto-certs
+      changed_when: false
+
+    - name: Config file
+      ansible.builtin.template:
+        src: templates/mosquitto/mosquitto.conf.j2
+        dest: '{{ mosquitto_dir }}/config/mosquitto.conf'
+        owner: '1883'
+        group: '1883'
+        mode: '0640'
+      notify: Restart Mosquitto
+
+    # The password hashes get a fresh salt on every run, so this always reports
+    # changed; Mosquitto rereads the file on SIGHUP, no restart needed.
+    - name: Password file
+      ansible.builtin.template:
+        src: templates/mosquitto/passwd.j2
+        dest: '{{ mosquitto_dir }}/config/passwd'
+        owner: '1883'
+        group: '1883'
+        mode: '0600'
+      no_log: true
+      register: mosquitto_passwd_file
+
+    - name: Start Mosquitto container
+      community.docker.docker_container:
+        name: '{{ mqtt_container_name }}'
+        image: eclipse-mosquitto:2.0
+        ports:
+          - '127.0.0.1:{{ portmap.mosquitto[0] }}:8083'
+          - '{{ portmap.mosquitto[1] }}:8883'
+        restart_policy: 'unless-stopped'
+        volumes:
+          - '{{ mosquitto_dir }}/config:/mosquitto/config:ro'
+          - '{{ mosquitto_dir }}/certs:/mosquitto/certs:ro'
+
+        container_default_behavior: 'no_defaults'
+        detach: yes
+
+    - name: Reload the password file
+      ansible.builtin.command:
+        cmd: docker kill -s HUP {{ mqtt_container_name }}
+      when: mosquitto_passwd_file is changed
+      changed_when: false
+
+    - name: Copy the certificate to Mosquitto when Caddy renews it
+      ansible.builtin.copy:
+        dest: '/etc/systemd/system/{{ item.name }}'
+        content: '{{ item.body }}'
+      loop:
+        - name: mosquitto-certs.path
+          body: |
+            [Unit]
+            Description=Watch the MQTT certificate for renewal
+            [Path]
+            PathChanged={{ mqtt_caddy_dir }}/{{ mqtt_host }}.crt
+            Unit=mosquitto-certs.service
+            [Install]
+            WantedBy=multi-user.target
+        - name: mosquitto-certs.service
+          body: |
+            [Unit]
+            Description=Copy the renewed MQTT certificate to Mosquitto
+            [Service]
+            Type=oneshot
+            ExecStart=/usr/local/bin/mosquitto-certs
+      loop_control:
+        label: '{{ item.name }}'
+      register: mosquitto_units
+
+    - name: Enable the renewal watcher
+      ansible.builtin.systemd:
+        name: mosquitto-certs.path
+        enabled: true
+        state: started
+        daemon_reload: '{{ mosquitto_units is changed }}'
+
+    - name: Open the port in ufw
+      community.general.ufw:
+        rule: allow
+        port: '{{ portmap.mosquitto[1] | string }}'
+        proto: tcp
+      ignore_errors: true

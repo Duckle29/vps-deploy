@@ -70,8 +70,12 @@ portmap:
     - 8500
     - 8512
 
+  # Update server container (loopback), nginx with 512 B TLS records for the
+  # devices, and the Caddy-internal loopback site that owns esp.mikkel.cc's cert
   esp_ota:
     - 5051
+    - 8444
+    - 8447
 
   # nginx with 512 B TLS records, serves certs.ar straight to the ESPs
   esp_certs:
@@ -86,6 +90,7 @@ portmap:
   vernemq:
     - 8884
   
+  # 8083 websockets (loopback, behind Caddy on mqtt.mikkel.cc:443), 8883 MQTTS
   mosquitto:
     - 8083
     - 8883

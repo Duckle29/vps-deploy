@@ -1,0 +1,12 @@
+# {{ansible_managed}}
+
+password_file /mosquitto/config/passwd
+allow_anonymous false
+
+# Websockets, reached through Caddy on {{ mqtt_host }}:443
+listener 8083
+protocol websockets
+
+listener 8883
+certfile /mosquitto/certs/{{ mqtt_host }}.crt
+keyfile /mosquitto/certs/{{ mqtt_host }}.key

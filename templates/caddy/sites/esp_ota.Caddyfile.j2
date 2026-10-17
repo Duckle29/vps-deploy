@@ -1,0 +1,19 @@
+# {{ansible_managed}}
+
+# Not a real site: Caddy only obtains and renews the certificate that nginx
+# serves for the ESP OTA updates on port {{ portmap.esp_ota[1] }} (nginx has to terminate TLS
+# itself to send 512 byte records, which Caddy cannot). See the "esp OTA" play.
+{{ esp_ota_host }}:{{ portmap.esp_ota[2] }} {
+	bind 127.0.0.1
+	tls {
+		# chain ending at ISRG Root X1: what the ESP trust store holds
+		issuer acme {
+			email mikkel@mikkel.cc
+			dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+			preferred_chains {
+				root_common_name "ISRG Root X1"
+			}
+		}
+	}
+	respond 404
+}

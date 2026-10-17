@@ -16,3 +16,9 @@ nfs_server: 'hexos1.home'
 nfs_share: '/mnt/HDDs/microservices'
 esp_certs_host: 'espcerts.mikkel.cc'
 esp_certs_dir: '/srv/espcerts'
+# Not esp.mikkel.cc: devices on the old firmware still update from there (VPS, :443),
+# and the new firmware has to find the new server under a name that can go live first.
+esp_ota_host: 'espota.mikkel.cc'
+esp_ota_dir: '/srv/esp-ota'
+mqtt_host: 'mqtt.mikkel.cc'
+mosquitto_dir: '/srv/mosquitto'

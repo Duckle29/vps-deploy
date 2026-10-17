@@ -1,0 +1,17 @@
+# {{ansible_managed}}
+
+# MQTT over websockets (Mosquitto listener {{ portmap.mosquitto[0] }}). Caddy also owns the certificate that
+# Mosquitto serves on {{ portmap.mosquitto[1] }} (copied by mosquitto-certs, see the "mqtt" play), so the chain
+# has to end at ISRG Root X1, which is what the ESP trust store holds.
+{{ mqtt_host }} {
+	tls {
+		issuer acme {
+			email mikkel@mikkel.cc
+			dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+			preferred_chains {
+				root_common_name "ISRG Root X1"
+			}
+		}
+	}
+	reverse_proxy http://127.0.0.1:{{ portmap.mosquitto[0] }}
+}
