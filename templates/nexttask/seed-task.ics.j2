@@ -1,0 +1,33 @@
+{#- One seeded task (deploy_nexttask_cloud.yml): t is an entry of nc_seed_tasks. -#}
+{%- set stamp = '%Y%m%dT%H%M%SZ' | strftime(ansible_date_time.epoch | int, utc=true) -%}
+{%- macro text(s) -%}{{ s | replace('\\', '\\\\') | replace(';', '\\;') | replace(',', '\\,') | replace('\n', '\\n') }}{%- endmacro -%}
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//vps-deploy//NextTask tester seed//EN
+BEGIN:VTODO
+UID:seed-{{ t.uid }}
+DTSTAMP:{{ stamp }}
+CREATED:{{ stamp }}
+LAST-MODIFIED:{{ stamp }}
+SUMMARY:{{ text(t.summary) }}
+{% if t.notes is defined %}
+DESCRIPTION:{{ text(t.notes) }}
+{% endif %}
+{% if t.parent is defined %}
+RELATED-TO;RELTYPE=PARENT:seed-{{ t.parent }}
+{% endif %}
+{% if t.due_days is defined %}
+DUE;VALUE=DATE:{{ '%Y%m%d' | strftime((ansible_date_time.epoch | int) + 86400 * t.due_days) }}
+{% endif %}
+{% if t.priority is defined %}
+PRIORITY:{{ t.priority }}
+{% endif %}
+{% if t.done | default(false) %}
+STATUS:COMPLETED
+PERCENT-COMPLETE:100
+COMPLETED:{{ stamp }}
+{% else %}
+STATUS:NEEDS-ACTION
+{% endif %}
+END:VTODO
+END:VCALENDAR

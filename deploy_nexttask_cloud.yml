@@ -6,9 +6,9 @@
 # homeserver's Caddy terminates TLS and proxies to port {{ nexttask_cloud_port }}
 # here (templates/caddy/sites/nexttask.Caddyfile.j2, deploy_homeserver.yml --tags sites).
 #
-# Tester accounts are made by hand as testers turn up (web UI or
-# `sudo docker exec -u www-data nexttask-nextcloud php occ user:add <name>`). Every
-# account gets the default quota below and starts with an empty folder.
+# Tester accounts tester01..tester30 come from credentials.nexttask_cloud.testers;
+# new ones are created with two seeded task lists (nc_seed_lists/nc_seed_tasks).
+# Every account gets the default quota below and starts with an empty folder.
 #
 # Needs credentials.nexttask_cloud.{admin_password,postgres_password,smtp.password}
 # (the last one is the Migadu mailbox noreply@sche.cc) and the inventory group
@@ -109,6 +109,37 @@
       - user_status
       - weather_status
       - webhook_listeners
+    # tester01..tester30 -> password, in credentials.yml (gitignored)
+    nc_testers: "{{ credentials.nexttask_cloud.testers | default({}) }}"
+    nc_seed_users: "{{ nc_new_testers }}"
+    # Two lists every new tester starts with. Tasks refer to their list by id
+    # and to a parent task by uid (RELATED-TO;RELTYPE=PARENT, as NextTask uses).
+    nc_seed_lists:
+      - {id: getting-started, name: Getting started, color: '#0082c9'}
+      - {id: weekend-project, name: Weekend project, color: '#e9a23b'}
+    nc_seed_tasks:
+      - {list: getting-started, uid: gs-1, summary: Tick this task off}
+      - list: getting-started
+        uid: gs-2
+        summary: Open a task to edit its title and notes
+        notes: Tasks sync with Nextcloud over CalDAV, so changes also show up in the Tasks app on the web.
+      - {list: getting-started, uid: gs-3, summary: Tasks can have subtasks}
+      - {list: getting-started, uid: gs-3a, summary: Like this one, parent: gs-3}
+      - {list: getting-started, uid: gs-3b, summary: And they can nest deeper, parent: gs-3}
+      - {list: getting-started, uid: gs-3b1, summary: Three levels down, parent: gs-3b}
+      - {list: getting-started, uid: gs-4, summary: Drag a task to reorder it or move it under another one}
+      - {list: getting-started, uid: gs-5, summary: This one is due in two days, due_days: 2}
+      - {list: getting-started, uid: gs-6, summary: This one is already done, done: true}
+      - {list: weekend-project, uid: wp-1, summary: Build a bookshelf, priority: 1}
+      - {list: weekend-project, uid: wp-1a, summary: Measure the wall, parent: wp-1, done: true}
+      - {list: weekend-project, uid: wp-1b, summary: Buy wood and screws, parent: wp-1, due_days: 1}
+      - {list: weekend-project, uid: wp-1c, summary: Cut and sand the boards, parent: wp-1}
+      - {list: weekend-project, uid: wp-1d, summary: Paint, parent: wp-1}
+      - {list: weekend-project, uid: wp-2, summary: Groceries}
+      - {list: weekend-project, uid: wp-2a, summary: Coffee, parent: wp-2}
+      - {list: weekend-project, uid: wp-2b, summary: Bread, parent: wp-2}
+      - {list: weekend-project, uid: wp-2c, summary: Apples, parent: wp-2}
+      - {list: weekend-project, uid: wp-3, summary: Call the hardware store about delivery, due_days: 3}
     # Lowest PHP release per branch with the fixes for CVE-2026-109618/109619.
     php_minimum:
       '8.2': '8.2.35'
@@ -291,3 +322,66 @@
       ansible.builtin.command: "{{ occ }} app:disable {{ item }}"
       loop: "{{ nc_disabled_apps }}"
       when: item in (nc_app_list.stdout | from_json).enabled
+
+    # --- Tester accounts ------------------------------------------------------
+    - name: List the accounts
+      ansible.builtin.command: "{{ occ }} user:list --output=json --limit=1000"
+      register: nc_user_list
+      changed_when: false
+
+    - name: Pick the testers that don't exist yet
+      ansible.builtin.set_fact:
+        nc_new_testers: "{{ nc_testers | list | difference(nc_user_list.stdout | from_json | list) | sort }}"
+
+    # The password goes in through the environment, not the command line.
+    - name: Create the missing tester accounts
+      community.docker.docker_container_exec:
+        container: nexttask-nextcloud
+        user: www-data
+        argv: [php, occ, user:add, --password-from-env, --display-name, "Tester {{ item[-2:] }}", "{{ item }}"]
+        env:
+          OC_PASS: "{{ nc_testers[item] }}"
+      loop: "{{ nc_new_testers }}"
+      no_log: true
+
+    # Only new accounts get the lists, so a tester's deletions don't come back
+    # on the next run. -e '{"nc_seed_users": ["tester07"]}' re-seeds one;
+    # existing lists and tasks are left alone (405 / If-None-Match).
+    - name: Create the seeded task lists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ nexttask_cloud_port }}/remote.php/dav/calendars/{{ item.0 }}/{{ item.1.id }}/"
+        method: MKCALENDAR
+        headers:
+          Host: "{{ nexttask_cloud_host }}"
+          Content-Type: application/xml; charset=utf-8
+        url_username: "{{ item.0 }}"
+        url_password: "{{ nc_testers[item.0] }}"
+        force_basic_auth: true
+        body: >-
+          <c:mkcalendar xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"
+          xmlns:a="http://apple.com/ns/ical/"><d:set><d:prop>
+          <d:displayname>{{ item.1.name }}</d:displayname>
+          <a:calendar-color>{{ item.1.color }}</a:calendar-color>
+          <c:supported-calendar-component-set><c:comp name="VTODO"/></c:supported-calendar-component-set>
+          </d:prop></d:set></c:mkcalendar>
+        status_code: [201, 405]
+      loop: "{{ nc_seed_users | product(nc_seed_lists) | list }}"
+      loop_control:
+        label: "{{ item.0 }} {{ item.1.id }}"
+
+    - name: Fill them with tasks
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ nexttask_cloud_port }}/remote.php/dav/calendars/{{ item.0 }}/{{ item.1.list }}/seed-{{ item.1.uid }}.ics"
+        method: PUT
+        headers:
+          Host: "{{ nexttask_cloud_host }}"
+          Content-Type: text/calendar; charset=utf-8
+          If-None-Match: '*'
+        url_username: "{{ item.0 }}"
+        url_password: "{{ nc_testers[item.0] }}"
+        force_basic_auth: true
+        body: "{{ lookup('template', 'templates/nexttask/seed-task.ics.j2', template_vars={'t': item.1}) | regex_replace('\\r?\\n', '\\r\\n') }}"
+        status_code: [201, 204, 412]
+      loop: "{{ nc_seed_users | product(nc_seed_tasks) | list }}"
+      loop_control:
+        label: "{{ item.0 }} {{ item.1.list }}/{{ item.1.uid }}"
