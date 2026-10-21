@@ -74,7 +74,41 @@
     nc_smtp_port: 465
     nc_smtp_user: noreply@sche.cc
     nc_apps: [tasks, calendar]
-    nc_disabled_apps: [firstrunwizard, recommendations, weather_status, photos]
+    # NextTask needs only core (Login Flow v2, app passwords) and dav. Everything
+    # else that can be disabled is, except Tasks/Calendar for the testers and
+    # the security/admin apps (password_policy, bruteforcesettings, twofactor_totp,
+    # notifications, logreader, serverinfo, updatenotification). Less PHP exposed,
+    # and no versions/trash eating the 100 MB quotas.
+    nc_disabled_apps:
+      - activity
+      - app_api
+      - circles
+      - comments
+      - contactsinteraction
+      - dashboard
+      - federation
+      - files_downloadlimit
+      - files_lock
+      - files_pdfviewer
+      - files_reminders
+      - files_sharing
+      - files_trashbin
+      - files_versions
+      - firstrunwizard
+      - nextcloud_announcements
+      - office
+      - photos
+      - privacy
+      - recommendations
+      - related_resources
+      - sharebymail
+      - support
+      - survey_client
+      - systemtags
+      - text
+      - user_status
+      - weather_status
+      - webhook_listeners
     # Lowest PHP release per branch with the fixes for CVE-2026-109618/109619.
     php_minimum:
       '8.2': '8.2.35'
