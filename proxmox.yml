@@ -28,8 +28,10 @@
 #   Play 3, "Proxmox virtual machines" (tag vms): creates VM 101 (Ubuntu 24.04 cloud
 #   image + cloud-init: user mikkel, ssh keys, guest agent, DHCP with the old MAC, 200 GB)
 #   and VM 103 (HexOS: empty, install ISO attached, the three data disks passed
-#   through; HexOS itself is installed in the GUI), each ONLY when it does not exist.
-#   Needs credentials.vm101.mikkel_password. Adds `snippets` to the `local` storage.
+#   through; HexOS itself is installed in the GUI), and VM 106 (the NextTask tester
+#   Nextcloud: same cloud image, static IP; deploy_nexttask_cloud.yml does the rest),
+#   each ONLY when it does not exist. Needs credentials.vm101.mikkel_password and
+#   credentials.vm106.mikkel_password. Adds `snippets` to the `local` storage.
 #
 # NOT managed (done by hand): see docs/proxmox0.md, the record of the host, the
 # NAS VM, the TrueNAS cron/shares/snapshot tasks, the Hetzner accounts, the UPS
@@ -242,6 +244,9 @@
       - {type: qm, id: 101, key: startup, value: "order=2"}
       - {type: qm, id: 101, key: onboot, value: "1"}
       - {type: qm, id: 101, key: agent, value: "1"}
+      - {type: qm, id: 106, key: startup, value: "order=4"}
+      - {type: qm, id: 106, key: onboot, value: "1"}
+      - {type: qm, id: 106, key: agent, value: "1"}
       - {type: pct, id: 105, key: startup, value: "order=3,up=30"}
       - {type: pct, id: 105, key: onboot, value: "1"}
       - {type: pct, id: 105, key: features, value: "nesting=1"}
@@ -254,8 +259,10 @@
       - {id: 101, disk: scsi0, size_gb: 200}
 
   tasks:
+    # A guest that play 3 has not created yet is skipped ("missing").
     - name: Compare guest settings with the wanted values
       ansible.builtin.shell: >-
+        {{ item.type }} config {{ item.id }} >/dev/null 2>&1 || { echo missing; exit 0; };
         {{ item.type }} config {{ item.id }} | grep -qxF '{{ item.key }}: {{ item.value }}'
         && echo ok || echo differs
       register: guest_diff
@@ -404,7 +411,7 @@
     - name: Create the nightly VM backup job
       ansible.builtin.command: >-
         pvesh create /cluster/backup --id nightly-vms --schedule 01:30
-        --storage pbs-main --mode snapshot --vmid 101,103,105
+        --storage pbs-main --mode snapshot --vmid 101,103,105,106
         --prune-backups keep-all=1 --notes-template '{{ '{{guestname}}' }}' --enabled 1
       when: nightly_job.rc != 0
 
@@ -433,6 +440,7 @@
     - vms
 
   vars_files:
+    - vars/shared_vars.yml
     - vars/credentials.yml
 
   vars:
@@ -450,6 +458,16 @@
     cloud_image_name: noble-server-cloudimg-amd64.img
     cloud_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
     cloud_image_sums: https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+
+    # --- VM 106 "nexttask-cloud": Nextcloud for the NextTask beta testers ------
+    # A VM rather than an LXC: it is internet-facing PHP with outside users, and
+    # a container would share the kernel with this host (PBS, NAS disks, keys).
+    vm106_id: 106
+    vm106_name: nexttask-cloud
+    vm106_cores: 2
+    vm106_memory: 3072
+    vm106_disk_gb: 20
+    vm106_password: "{{ (credentials.vm106 | default({})).mikkel_password | default('') }}"
 
     # --- VM 103 "HexOS" (the NAS): created empty, HexOS is installed in the GUI -
     vm103_id: 103
@@ -587,6 +605,126 @@
               credentials). Run deploy_homeserver.yml -K against it, then restore
               the Docker data from PBS. The cloud image is DHCP: UniFi must have
               the lease for {{ vm101_mac }}.
+
+    - name: Look for VM 106
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ vm106_id }}.conf"
+      register: vm106
+
+    # Same cloud image, vendor data and keys as VM 101; static address instead of
+    # a UniFi lease. deploy_nexttask_cloud.yml sets up the inside.
+    - name: Create VM 106
+      when: not vm106.stat.exists
+      block:
+        - name: Check the inputs
+          ansible.builtin.assert:
+            that:
+              - vm106_password | length > 0
+            fail_msg: "Set credentials.vm106.mikkel_password in vars/credentials.yml"
+            quiet: true
+
+        - name: Allow snippets on the local storage
+          ansible.builtin.shell: >-
+            grep -A3 '^dir: local$' /etc/pve/storage.cfg | grep -q snippets
+            && echo ok || { pvesm set local --content vztmpl,backup,iso,snippets && echo changed; }
+          register: snippets_content
+          changed_when: "'changed' in snippets_content.stdout"
+
+        - name: Snippets directory
+          ansible.builtin.file:
+            path: /var/lib/vz/snippets
+            state: directory
+            mode: "0755"
+
+        - name: Cloud-init vendor data and ssh keys
+          ansible.builtin.copy:
+            src: "files/proxmox/{{ item.src }}"
+            dest: "/var/lib/vz/snippets/{{ item.dest }}"
+            mode: "0644"
+          loop:
+            - {src: vm101-vendor.yaml, dest: vm101-vendor.yaml}
+            - {src: vm101_authorized_keys, dest: vm101-authorized_keys}
+
+        - name: Download the Ubuntu cloud image
+          ansible.builtin.get_url:
+            url: "{{ cloud_image_url }}"
+            dest: "{{ cloud_image_dir }}/{{ cloud_image_name }}"
+            checksum: "sha256:{{ cloud_image_sums }}"
+            mode: "0644"
+
+        - name: Create the VM and import the image
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - qm
+              - create
+              - "{{ vm106_id }}"
+              - --name
+              - "{{ vm106_name }}"
+              - --bios
+              - ovmf
+              - --machine
+              - q35
+              - --cpu
+              - x86-64-v4
+              - --sockets
+              - "1"
+              - --cores
+              - "{{ vm106_cores }}"
+              - --memory
+              - "{{ vm106_memory }}"
+              - --numa
+              - "0"
+              - --ostype
+              - l26
+              - --agent
+              - "1"
+              - --scsihw
+              - virtio-scsi-single
+              - --net0
+              - "virtio,bridge=vmbr0,firewall=1"
+              - --efidisk0
+              - "local-zfs:1,efitype=4m,pre-enrolled-keys=1"
+              - --scsi0
+              - "local-zfs:0,import-from={{ cloud_image_dir }}/{{ cloud_image_name }},iothread=1,discard=on"
+              - --ide2
+              - "local-zfs:cloudinit"
+              - --boot
+              - "order=scsi0"
+              - --onboot
+              - "1"
+              - --startup
+              - "order=4"
+              - --ciuser
+              - mikkel
+              - --cipassword
+              - "{{ vm106_password }}"
+              - --sshkeys
+              - /var/lib/vz/snippets/vm101-authorized_keys
+              - --ipconfig0
+              - "ip={{ nexttask_cloud_ip }}/24,gw=192.168.6.1"
+              - --cicustom
+              - "vendor=local:snippets/vm101-vendor.yaml"
+
+        - name: Grow the system disk
+          ansible.builtin.command: "qm resize {{ vm106_id }} scsi0 {{ vm106_disk_gb }}G"
+
+        - name: Start VM 106
+          ansible.builtin.command: "qm start {{ vm106_id }}"
+
+        - name: Wait for the guest agent
+          ansible.builtin.command: "qm agent {{ vm106_id }} ping"
+          register: vm106_agent
+          until: vm106_agent.rc == 0
+          retries: 60
+          delay: 10
+          changed_when: false
+
+        - name: Next steps for VM 106
+          ansible.builtin.debug:
+            msg: >-
+              VM {{ vm106_id }} is up at {{ nexttask_cloud_ip }} with user mikkel.
+              Add it to the nightly-vms backup job, then run deploy_nexttask_cloud.yml.
 
     - name: Look for VM 103
       ansible.builtin.stat:

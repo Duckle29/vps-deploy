@@ -52,6 +52,7 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 - [x] lounge.snuletek.org: no separate monitor, same Caddy site as lounge.mikkel.cc
       (the second name exists because mikkel.cc is blocked at work)
 - [x] nextcloud.mikkel.cc (`/status.php`, keyword `"installed":true`)
+- [ ] nexttask.mikkel.cc (`/status.php`, keyword `"installed":true`): the tester Nextcloud on VM 106
 - [x] immich.mikkel.cc (`/api/server/ping`, keyword `pong`)
 - [x] unifi.mikkel.cc / ubnt.mikkel.cc
 - [x] joplin.mikkel.cc: not monitored on purpose; Joplin is being retired for Nextcloud Notes

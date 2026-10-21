@@ -6,6 +6,10 @@ mikkelcc_webroot: '/srv/mikkel.cc'
 blog_webroot: '/srv/blog.mikkel.cc'
 snuletekorg_webroot: '/srv/snuletek.org'
 shlink_domain: 'sche.cc'
+# Nextcloud for the NextTask beta testers, VM 106 (proxmox.yml, deploy_nexttask_cloud.yml)
+nexttask_cloud_host: 'nexttask.mikkel.cc'
+nexttask_cloud_ip: '192.168.6.8'
+nexttask_cloud_port: 8080
 wifir_webroot: '/srv/wifir.mikkel.cc'
 mqtt_container_name: 'duQTT-Mosquitto'
 caddy_version: 'v2.11.2'

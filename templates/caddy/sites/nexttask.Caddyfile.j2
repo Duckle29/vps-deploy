@@ -1,0 +1,16 @@
+# {{ansible_managed}}
+
+# Nextcloud for the NextTask testers on VM 106 (deploy_nexttask_cloud.yml).
+{{ nexttask_cloud_host }}:443 {
+	tls mikkel@mikkel.cc {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	# Nextcloud's own .well-known redirects come out as http:// behind the proxy.
+	redir /.well-known/carddav /remote.php/dav/ 301
+	redir /.well-known/caldav /remote.php/dav/ 301
+	header Strict-Transport-Security "max-age=15552000; includeSubDomains"
+	header -X-Powered-By
+	reverse_proxy http://{{ nexttask_cloud_ip }}:{{ nexttask_cloud_port }} {
+		header_up X-Forwarded-For {client_ip}
+	}
+}
