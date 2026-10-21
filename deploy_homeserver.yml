@@ -894,6 +894,7 @@
       community.docker.docker_container:
         name: shlink
         image: 'shlinkio/shlink:{{ shlink_version }}'
+        pull: yes
         networks:
           - name: shlink
         ports:
