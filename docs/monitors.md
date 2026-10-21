@@ -88,7 +88,9 @@ Not monitored: **SSH on the NAS**. SSH is off on HexOS (a TCP check on
 ### Reachability and public path
 
 - [x] Home reachable: TCP `home.mikkel.cc:443`, 60 s, retries 3
-- [x] Caddy + TLS: HTTPS `https://sche.cc/<known code>`, accept 302, cert expiry on
+- [x] Caddy + TLS: HTTPS `https://sche.cc/caddy-health` (answered by Caddy itself,
+  not Shlink), accept 200, keyword `OK`, cert expiry on. Was a short code with
+  accept 302 until 2026-10-21, which went down with Shlink's CVE maintenance page.
 - [x] Nextcloud: `/status.php`, keyword `"installed":true`
 - [x] Immich: `/api/server/ping`, keyword `pong`
 - [x] Webhook server: `webhooks.mikkel.cc/`, accept 404

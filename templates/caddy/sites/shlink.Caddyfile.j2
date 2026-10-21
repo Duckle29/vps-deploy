@@ -5,6 +5,12 @@
 	tls mikkel@mikkel.cc {
 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
+    # Answered by Caddy itself, for the external Kuma's "Caddy + TLS" monitor, so
+    # it does not depend on Shlink. `handle` runs before `respond`, so this also
+    # works while the maintenance page below is on.
+    handle /caddy-health {
+        respond "OK" 200
+    }
     # TEMPORARY: see cve-maintenance.Caddyfile.j2
     import cve_maintenance
     # One proxy sits in front of Shlink (this Caddy), so TRUSTED_PROXIES=1 there.
