@@ -854,7 +854,7 @@
     - vars/credentials.yml
 
   vars:
-    shlink_version: '5.1.7'
+    shlink_version: '5.1.8'
     shlink_mariadb_version: '11.4'
 
   tasks:
