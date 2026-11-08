@@ -310,7 +310,8 @@
     - vars/credentials.yml
 
   tasks:
-      # Deploys all .Caddyfile.j2 files in templates/caddy/sites
+      # Deploys all .Caddyfile.j2 files in templates/caddy/sites (not the
+      # retired/ subdirectory, which fileglob does not descend into)
     - name: Deploy site configs
       template:
         src: '{{ item }}'
@@ -730,7 +731,7 @@
     kuma_local_hosts:
       - mikkel.cc
       - blog.mikkel.cc
-      - wifir.mikkel.cc
+      # wifir.mikkel.cc retired 2026-11-08
       - webhooks.mikkel.cc
       - paste.mikkel.cc
       - sche.cc
@@ -919,7 +920,7 @@
         container_default_behavior: 'no_defaults'
         detach: yes
 
-- name: Deploy webhook based websites (resume, blog, wifir)
+- name: Deploy webhook based websites (resume, blog; wifir retired 2026-11-08)
   hosts: homeserver
   become: true
   tags:
@@ -938,7 +939,7 @@
     wh_server_webroots:
       - '{{ mikkelcc_webroot }}'
       - '{{ blog_webroot }}'
-      - '{{ wifir_webroot }}'
+      # - '{{ wifir_webroot }}'
     # 0.168.0 needs two changes in the blog repo: `[pagination] pagerSize`
     # instead of `paginate`, and `css.Sass` instead of `resources.ToCSS` in the
     # m10c theme's baseof.html. The VPS used 0.68.3, which builds the unpatched
@@ -990,7 +991,7 @@
       loop:
         - '{{ mikkelcc_webroot }}'
         - '{{ blog_webroot }}'
-        - '{{ wifir_webroot }}'
+        # - '{{ wifir_webroot }}'
 
     - name: Install webhook server
       ansible.builtin.include_role:
@@ -1097,7 +1098,7 @@
 
 #     - name: Certificate-owning site for Caddy
 #       ansible.builtin.template:
-#         src: templates/caddy/sites/espcerts.Caddyfile.j2
+#         src: templates/caddy/sites/retired/espcerts.Caddyfile.j2
 #         dest: /etc/caddy/sites/espcerts.Caddyfile
 #       notify: Reload caddy
 
@@ -1282,7 +1283,7 @@
 
 #     - name: Certificate-owning site for Caddy
 #       ansible.builtin.template:
-#         src: templates/caddy/sites/esp_ota.Caddyfile.j2
+#         src: templates/caddy/sites/retired/esp_ota.Caddyfile.j2
 #         dest: /etc/caddy/sites/esp_ota.Caddyfile
 #       notify: Reload caddy
 
@@ -1418,7 +1419,7 @@
 #   tasks:
 #     - name: Site for the websocket listener and the certificate
 #       ansible.builtin.template:
-#         src: templates/caddy/sites/mqtt.Caddyfile.j2
+#         src: templates/caddy/sites/retired/mqtt.Caddyfile.j2
 #         dest: /etc/caddy/sites/mqtt.Caddyfile
 #       notify: Reload caddy
 
@@ -1547,9 +1548,9 @@
 # esp OTA server, Mosquitto and the ESP certificate bundle retired 2026-11-08: the
 # devices now speak Home Assistant. The three plays above are kept commented out for reference. This play
 # stops what they left running; it is idempotent. The data (docker volume
-# esp-ota_data, /srv/esp-ota, /srv/mosquitto, /srv/espcerts) is deliberately left in place.
+# esp-ota_data, /srv/esp-ota, /srv/mosquitto, /srv/espcerts, /srv/wifir.mikkel.cc) is deliberately left in place.
 # Run once with: ansible-playbook deploy_homeserver.yml --tags retire-esp-mqtt -K
-- name: Retire the esp OTA server, Mosquitto and the ESP certificate bundle
+- name: Retire the esp OTA server, Mosquitto, the ESP certificate bundle and wifir
   hosts: homeserver
   become: true
   tags:
@@ -1602,6 +1603,7 @@
         - /etc/nginx/conf.d/espota.conf
         - /etc/caddy/sites/esp_ota.Caddyfile
         - /etc/caddy/sites/mqtt.Caddyfile
+        - /etc/caddy/sites/wifir.Caddyfile
       register: retire_files
 
     - name: Reload systemd

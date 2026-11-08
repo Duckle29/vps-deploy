@@ -43,7 +43,7 @@ HTTPS, interval 60 s, timeout 20 s, retries 2, "ignore TLS errors" off.
 
 - [x] mikkel.cc
 - [x] blog.mikkel.cc
-- [x] wifir.mikkel.cc
+- [x] wifir.mikkel.cc (RETIRED 2026-11-08: pause or delete once the retire play has run)
 - [x] webhooks.mikkel.cc (accept 404)
 - [x] paste.mikkel.cc
 - [x] sche.cc (accept 302)
