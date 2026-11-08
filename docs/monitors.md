@@ -125,7 +125,7 @@ host or the power going away; a missing heartbeat here is the alarm.
 - [x] ZFS health (`zfs`): down on `zpool status -x` problems or a pool >= 85 % full
       (host pools only; `HDDs` is inside the HexOS VM and is not visible)
 
-### ESP certificate bundle (play `espcerts`, deployed)
+### ESP certificate bundle (play `espcerts`, RETIRED 2026-11-08: pause or delete both monitors below once the retire play has run)
 
 - [x] Push monitor `espcerts` on the external Kuma (token in
       `credentials.kuma.heartbeat.espcerts`), heartbeat interval 8 days (the build
