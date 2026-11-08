@@ -304,7 +304,7 @@
       changed_when: false
       check_mode: false
 
-    # The TrueNAS cron job "snapshot-clone" (03:15) clones the newest snapshot of
+    # The TrueNAS cron job "snapshot-clone" (02:20) clones the newest snapshot of
     # each dataset to HDDs/offsite-clones/<ds>, shared read-only to this host.
     - name: Create the NAS mount points
       ansible.builtin.file:

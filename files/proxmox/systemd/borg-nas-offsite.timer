@@ -2,7 +2,7 @@
 Description=Nightly off-site copy of the NAS datasets
 
 [Timer]
-OnCalendar=*-*-* 03:30:00
+OnCalendar=*-*-* 02:30:00
 Persistent=true
 
 [Install]

@@ -26,7 +26,7 @@ summary=()
 for ds in "${DATASETS[@]}"; do
   base="/mnt/nas/$ds"
   # TrueNAS clones the newest auto-* snapshot of each dataset into
-  # HDDs/offsite-clones/<ds> at 03:15 and shares that (a snapshot itself is not
+  # HDDs/offsite-clones/<ds> at 02:20 and shares that (a snapshot itself is not
   # readable over NFS), so this is a consistent point in time.
   src="$base"; kind="clone"
   if [ -z "$(ls -A "$src" 2>/dev/null)" ]; then

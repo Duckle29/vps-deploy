@@ -124,7 +124,7 @@ Checked 2026-10-13, the `.dpkg-dist` leftovers were deleted:
 
 ### Cron job "snapshot-clone"
 
-Root, daily 03:15, output hidden. It clones the newest snapshot of each dataset
+Root, daily 02:20, output hidden. It clones the newest snapshot of each dataset
 read-only to `HDDs/offsite-clones/<ds>`, which is what the borg job reads over NFS
 (TrueNAS has no crossmnt, so snapshots show up empty over NFS). nfsd keeps an
 exported dataset busy, so the clone has to be unexported before the destroy and
@@ -154,12 +154,12 @@ done; exportfs -ra; exit $rc'
 
 - One per dataset `HDDs/{microservices,mikkel,haosBackups,HAOS}`, not recursive,
   daily at 00:00, naming schema `auto-%Y-%m-%d_%H-%M`, retention 1 week.
-- So the off-site copy is the NAS as of midnight: snapshot 00:00, clone 03:15,
-  borg 03:30.
+- So the off-site copy is the NAS as of midnight: snapshot 00:00, clone 02:20,
+  borg 02:30.
 - Nightly timeline (local time): 00:00 NAS snapshots, 01:10 `pve-host-backup`,
   01:30 `nightly-vms` (101,103,105,106 to PBS, done ~01:31), 02:00
   `borg-pbs-offsite` (moved from 05:00 on 2026-11-08, ~5 min, up to ~4 min more on
-  some nights), 03:15 TrueNAS clone cron, 03:30 `borg-nas-offsite` (~20 min).
+  some nights), 02:20 TrueNAS clone cron, 02:30 `borg-nas-offsite` (~20 min).
 - UniFi auto-updates devices and the Network app at 03:00. The gateway is the
   LAN's DNS, so name resolution drops for a while: on 2026-10-22 both borg jobs
   failed with "Could not resolve hostname u687936.your-storagebox.de" (03:30 and
