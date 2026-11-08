@@ -160,12 +160,14 @@ done; exportfs -ra; exit $rc'
   01:30 `nightly-vms` (101,103,105,106 to PBS, done ~01:31), 02:00
   `borg-pbs-offsite` (moved from 05:00 on 2026-11-08, ~5 min, up to ~4 min more on
   some nights), 02:20 TrueNAS clone cron, 02:30 `borg-nas-offsite` (~20 min).
-- UniFi auto-updates devices and the Network app at 03:00. The gateway is the
-  LAN's DNS, so name resolution drops for a while: on 2026-10-22 both borg jobs
-  failed with "Could not resolve hostname u687936.your-storagebox.de" (03:30 and
+- UniFi auto-updates devices and the Network app at 04:00 (moved from 03:00 on
+  2026-11-08, after the backup jobs finish by ~03:00). The gateway is the
+  LAN's DNS, so name resolution drops for a while: on 2026-10-22, with the update
+  still at 03:00, both borg jobs failed with "Could not resolve hostname u687936.your-storagebox.de" (03:30 and
   05:00). Keep the borg jobs out of that window; the borg scripts do not retry.
-- Kuma push monitors are not DST-aware: when the clocks went back on 2026-10-25 the
-  heartbeats arrived 1h later in UTC, which can trip a tight monitor once.
+- The Kuma backup push monitors use a 25h heartbeat interval, which absorbs the
+  one-off 25h gap when the clocks go back (2026-10-25) and the schedule moves
+  of 2026-11-08 (PBS borg 05:00 -> 02:00, NAS borg 03:30 -> 02:30).
 - `HDDs/HAOS` is empty (meant for 3D print videos, never set up) and deliberately
   has no clone or borg job; add it to `nas_clone_datasets` and the cron if it
   fills.
