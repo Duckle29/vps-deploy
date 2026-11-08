@@ -134,7 +134,7 @@ host or the power going away; a missing heartbeat here is the alarm.
 - [x] TCP `espcerts.mikkel.cc:8443` on the external Kuma (cert renewal is done by
       Caddy, an expired or missing cert shows as an HTTPS failure)
 
-### esp OTA and MQTT (deployed 2026-10-17, DNS on the homeserver)
+### esp OTA and MQTT (deployed 2026-10-17, RETIRED 2026-11-08: pause or delete these two monitors in Kuma once the retire play has run)
 
 - [x] esp OTA: TCP `esp.mikkel.cc:8445` (nginx, 512 B records; 8444 belongs to UniFi OS)
 - [x] MQTT TLS: TCP `mqtt.mikkel.cc:8883`, 60 s
