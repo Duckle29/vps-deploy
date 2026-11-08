@@ -156,6 +156,16 @@ done; exportfs -ra; exit $rc'
   daily at 00:00, naming schema `auto-%Y-%m-%d_%H-%M`, retention 1 week.
 - So the off-site copy is the NAS as of midnight: snapshot 00:00, clone 03:15,
   borg 03:30.
+- Nightly timeline (local time): 00:00 NAS snapshots, 01:10 `pve-host-backup`,
+  01:30 `nightly-vms` (101,103,105,106 to PBS, done ~01:31), 02:00
+  `borg-pbs-offsite` (moved from 05:00 on 2026-11-08, ~5 min, up to ~4 min more on
+  some nights), 03:15 TrueNAS clone cron, 03:30 `borg-nas-offsite` (~20 min).
+- UniFi auto-updates devices and the Network app at 03:00. The gateway is the
+  LAN's DNS, so name resolution drops for a while: on 2026-10-22 both borg jobs
+  failed with "Could not resolve hostname u687936.your-storagebox.de" (03:30 and
+  05:00). Keep the borg jobs out of that window; the borg scripts do not retry.
+- Kuma push monitors are not DST-aware: when the clocks went back on 2026-10-25 the
+  heartbeats arrived 1h later in UTC, which can trip a tight monitor once.
 - `HDDs/HAOS` is empty (meant for 3D print videos, never set up) and deliberately
   has no clone or borg job; add it to `nas_clone_datasets` and the cron if it
   fills.

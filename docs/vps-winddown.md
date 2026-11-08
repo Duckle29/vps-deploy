@@ -2,7 +2,8 @@
 
 State on 2026-10-17: everything that served traffic has moved to the homeserver
 (bepasty, shlink, snuletek, webhook + static sites, esp OTA on :8445, Mosquitto on
-:8883, ciao -> Kuma). DNS for those names points at `home.mikkel.cc`; the user
+:8883 (esp OTA, Mosquitto, espcerts and wifir were retired from the homeserver on
+2026-11-08, the devices now use Home Assistant), ciao -> Kuma). DNS for those names points at `home.mikkel.cc`; the user
 stopped all containers on the VPS on 2026-10-17. What is left is deciding what to
 keep, archiving it and cancelling the contract.
 

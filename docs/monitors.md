@@ -108,7 +108,7 @@ Interval 26 h, retries 0 (period + grace).
 
 - [x] `host_config`
 - [x] `pbs_vms`
-- [x] `borg_pbs`
+- [x] `borg_pbs` (job runs at 02:00 since 2026-11-08, was 05:00)
 - [x] `borg_nas`
 
 ### Host health push monitors (live)
